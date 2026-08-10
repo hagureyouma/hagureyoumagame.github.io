@@ -146,14 +146,14 @@ class Game {//エンジン本体
 
         requestAnimationFrame(this.mainloop.bind(this));
     }
-    pushScene = scene => this.root.child.add(scene);
-    popScene = () => this.root.child.pop();
-    setCoroutine = (coro) => this.root.coro.start(coro);
-    isOutOfScreen = (rect) => !this.screenRect.isIntersect(rect);
-    isWithinScreen = (rect) => !this.screenRect.isOverflow(rect);
-    isOutOfRange = (rect) => !this.rangeRect.isIntersect(rect);
-    isWithinRange = (rect) => !this.rangeRect.isOverflow(rect);
-    setRange = (range) => this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range);
+    pushScene (scene){ this.root.child.add(scene);}
+    popScene  () { this.root.child.pop(); }
+    setCoroutine (coro) { this.root.coro.start(coro); }
+    isOutOfScreen (rect) { return !this.screenRect.isIntersect(rect); }
+    isWithinScreen (rect) { return !this.screenRect.isOverflow(rect); }
+    isOutOfRange (rect) { return !this.rangeRect.isIntersect(rect); }
+    isWithinRange (rect) { return !this.rangeRect.isOverflow(rect); }
+    setRange (range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
     get range() { return Math.abs(this.rangeRect.x); };
     get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
     get sec() { return this.time / 1000; }
@@ -226,10 +226,10 @@ class Layer {//レイヤー
         this.blur;
         this.isPauseBlur = false;
     }
-    getContext = () => this.canvas.getContext('2d');
-    getBlurContext = () => this.blur.getContext('2d');
-    clear = () => this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height);
-    clearBlur = () => this.getBlurContext().clearRect(0, 0, this.canvas.width, this.canvas.height);
+    getContext() { return this.canvas.getContext('2d'); }
+    getBlurContext() { return this.blur.getContext('2d'); }
+    clear() { return this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
+    clearBlur() { return this.getBlurContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
     enableBlur() {
         if (this.blur) return;
         const blur = this.blur = document.createElement('canvas');
@@ -437,8 +437,8 @@ class Rect {//矩形
     }
     get right() { return this.x + this.width; }
     get bottom() { return this.y + this.height; }
-    isIntersect = (rect) => rect.right > this.x && this.right > rect.x && rect.bottom > this.y && this.bottom > rect.y;
-    isOverflow = (rect) => rect.x < this.x || rect.right > this.right || rect.y < this.y || rect.bottom > this.bottom;
+    isIntersect(rect) { return rect.right > this.x && this.right > rect.x && rect.bottom > this.y && this.bottom > rect.y; }
+    isOverflow(rect) { return rect.x < this.x || rect.right > this.right || rect.y < this.y || rect.bottom > this.bottom; }
 }
 export class Mono {//ゲームオブジェクト
     constructor(...args) {
@@ -1055,16 +1055,16 @@ export class Moji {//文字コンポーネント
         this.textSplit = text.split('\n');
         let tm = Moji.sizeCache.get(this.sizeCacheKey);
         if (!tm) {
-        for (let i = 0; i < this.textSplit.length; i++) {
-            const text = this.textSplit[i]
-            let tm = Moji.sizeCache.get(this.sizeCacheKey);
-            if (!tm) {
-                tm = ctx.measureText(text);
-                Moji.sizeCache.set(this.sizeCacheKey, tm);
+            for (let i = 0; i < this.textSplit.length; i++) {
+                const text = this.textSplit[i]
+                let tm = Moji.sizeCache.get(this.sizeCacheKey);
+                if (!tm) {
+                    tm = ctx.measureText(text);
+                    Moji.sizeCache.set(this.sizeCacheKey, tm);
+                }
+                textWidth = Math.max(tm.width, textWidth);
+                textHeight += Math.ceil(Math.abs(tm.actualBoundingBoxAscent) + Math.abs(tm.actualBoundingBoxDescent));
             }
-            textWidth = Math.max(tm.width, textWidth);
-            textHeight += Math.ceil(Math.abs(tm.actualBoundingBoxAscent) + Math.abs(tm.actualBoundingBoxDescent));
-        }
 
             tm = ctx.measureText(text);
             Moji.sizeCache.set(this.sizeCacheKey, tm);

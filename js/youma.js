@@ -695,7 +695,7 @@ export class Pos {//位置と大きさコンポーネント
         this.set(0, 0, 0, 0);
         this.scaleX = this.scaleY = 1;
         this.angle = 0;
-        this.align = this.valign = 0; //align&valign left top=0,center midle=1,right bottom=2
+        this.align = this.valign = 0; //align&valign left top=0,center middle=1,right bottom=2
         this._rect.set(0, 0, 0, 0);
         this.parent = undefined;
     }

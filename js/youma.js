@@ -146,14 +146,14 @@ class Game {//エンジン本体
 
         requestAnimationFrame(this.mainloop.bind(this));
     }
-    pushScene (scene){ this.root.child.add(scene);}
-    popScene  () { this.root.child.pop(); }
-    setCoroutine (coro) { this.root.coro.start(coro); }
-    isOutOfScreen (rect) { return !this.screenRect.isIntersect(rect); }
-    isWithinScreen (rect) { return !this.screenRect.isOverflow(rect); }
-    isOutOfRange (rect) { return !this.rangeRect.isIntersect(rect); }
-    isWithinRange (rect) { return !this.rangeRect.isOverflow(rect); }
-    setRange (range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
+    pushScene(scene) { this.root.child.add(scene); }
+    popScene() { this.root.child.pop(); }
+    setCoroutine(coro) { this.root.coro.start(coro); }
+    isOutOfScreen(rect) { return !this.screenRect.isIntersect(rect); }
+    isWithinScreen(rect) { return !this.screenRect.isOverflow(rect); }
+    isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
+    isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
+    setRange(range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
     get range() { return Math.abs(this.rangeRect.x); };
     get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
     get sec() { return this.time / 1000; }
@@ -650,7 +650,7 @@ export class Color {//色コンポーネント
         this.alpha = this.baseAlpha;
         this.func = undefined;
     }
-    update = () => this.func?.();
+    update() { this.func?.(); }
     flash(color) {
         if (this.func) this.restore();
         this.baseColor = this.value;
@@ -978,24 +978,22 @@ export class Collision {//当たり判定コンポーネント
 export class Brush {//描画コンポーネント
     static requieds = [Pos, Color];
     static rad = Math.PI * 2;
+    static drawerRect(ctx, pos) {
+        ctx.fillRect(pos.left, pos.top, pos.width, pos.height);
+    }
+    static drawerCircle(ctx, pos) {
+        ctx.beginPath();
+        ctx.arc(pos.linkX, pos.linkY, pos.width * 0.5, 0, Brush.rad);
+        ctx.fill();
+    }
     constructor() {
         this.reset();
     }
     reset() {
         this.rect();
     }
-    rect() {
-        this.drawer = (ctx, pos) => {
-            ctx.fillRect(pos.left, pos.top, pos.width, pos.height);
-        };
-    }
-    circle() {
-        this.drawer = (ctx, pos) => {
-            ctx.beginPath();
-            ctx.arc(pos.linkX, pos.linkY, pos.width * 0.5, 0, Brush.rad);
-            ctx.fill();
-        };
-    }
+    rect() { this.drawer = Brush.drawerRect; }
+    circle() { this.drawer = Brush.drawerCircle; }
     draw(ctx) {
         ctx.save();
         this.owner.color.applyContext(ctx);
@@ -1053,45 +1051,24 @@ export class Moji {//文字コンポーネント
         this.beforeText = text;
         this.sizeCacheKey = text + this.fontStyle;
         this.textSplit = text.split('\n');
-        let tm = Moji.sizeCache.get(this.sizeCacheKey);
-        if (!tm) {
-            for (let i = 0; i < this.textSplit.length; i++) {
-                const text = this.textSplit[i]
-                let tm = Moji.sizeCache.get(this.sizeCacheKey);
-                if (!tm) {
-                    tm = ctx.measureText(text);
-                    Moji.sizeCache.set(this.sizeCacheKey, tm);
-                }
-                textWidth = Math.max(tm.width, textWidth);
-                textHeight += Math.ceil(Math.abs(tm.actualBoundingBoxAscent) + Math.abs(tm.actualBoundingBoxDescent));
+        let textWidth = 0, textHeight = 0;
+        let textSize = Moji.sizeCache.get(this.sizeCacheKey);
+        if (!textSize) {
+            const ctx = game.layers.get('main').getContext();
+            this._applyContext(ctx);
+            for (const line of this.textSplit) {
+                textWidth = Math.max(ctx.measureText(line).width, textWidth);
             }
-
-            tm = ctx.measureText(text);
-            Moji.sizeCache.set(this.sizeCacheKey, tm);
+            textHeight = this.lineHeight * this.textSplit.length - this.lineSpace;
+            textSize = { width: textWidth, height: textHeight };
+            Moji.sizeCache.set(this.sizeCacheKey, textSize);
         }
-
-
-        let textWidth = 0, textHeight = 0
-
-        const ctx = game.layers.get('main').getContext();
-        this._applyContext(ctx);
-        for (let i = 0; i < this.textSplit.length; i++) {
-            const text = this.textSplit[i]
-            let tm = Moji.sizeCache.get(this.sizeCacheKey);
-            if (!tm) {
-                tm = ctx.measureText(text);
-                Moji.sizeCache.set(this.sizeCacheKey, tm);
-            }
-            textWidth = Math.max(tm.width, textWidth);
-            textHeight += Math.ceil(Math.abs(tm.actualBoundingBoxAscent) + Math.abs(tm.actualBoundingBoxDescent));
-        }
-        if (this.textSplit.length > 1) textHeight += this.lineSpace * (this.textSplit.length - 1);
         const pos = this.owner.pos;
-        pos.width = textWidth;
-        pos.height = textHeight;
+        pos.width = textSize.width;
+        pos.height = textSize.height;
     }
     _applyContext(ctx) {
-        ctx.font = this.fontStyleCache;
+        ctx.font = this.fontStyle;
         ctx.textBaseline = this.baseLine;
     }
     draw(ctx) {

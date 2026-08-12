@@ -57,7 +57,9 @@ class Game {//ゲームエンジン本体
         document.body.style.backgroundColor = cfg.theme.bg;
         const width = cfg.screenSize.width;
         const height = cfg.screenSize.height;
-        this.screen = new Screen(width, height, this.layers = new Layers(width, height));
+        this.screen = new Screen(width, height);
+        this.layers = new Layers(width, height);
+        this.screen.init(this.layers);
         this.root = new Mono(Coro, Child);
         this.input = new Input();
         this.asset = new AssetLoader();
@@ -162,16 +164,19 @@ class AssetLoader {//アセット読み込み
     }
 }
 class Screen {//画面
-    constructor(width, height, layers) {
+    constructor(width, height) {
         this.rect = new Rect(0, 0, width, height);
         this.rangeRect = new Rect(0, 0, width, height);
-        this.layers = layers;
         this.viewWidth = this.viewHeight = 0;
+        this.layers = undefined;
+        window.addEventListener('resize', () => this.resize());
+    }
+    init(layers) {
+        this.layers = layers;
         this.resize();
-        window.addEventListener('resize', this.resize.bind(this));
     }
     resize() {
-        if (Util.isPC) {
+        if (Util.isPC()) {
             this.viewWidth = this.rect.width;
             this.viewHeight = this.rect.height;
         } else {
@@ -179,7 +184,7 @@ class Screen {//画面
             this.viewWidth = Math.round(this.rect.width * scale);
             this.viewHeight = Math.round(this.rect.height * scale);
         }
-        this.layers.resize(this.viewWidth, this.viewHeight);
+        this.layers?.resize(this.viewWidth, this.viewHeight);
     }
     get width() { return this.rect.width; };
     get height() { return this.rect.height; };
@@ -203,11 +208,14 @@ class Layers {//レイヤーコンテナ
     _createContainer() {
         const div = this.div = document.createElement('div');
         div.className = 'game-container';
-        div.style.position = 'relative';
+        div.style.position = 'fixed';
         div.style.display = 'block';
         div.style.padding = '0';
         div.style.margin = '0';
-        document.body.insertAdjacentElement('beforebegin', div);
+        div.style.left = '50%';
+        div.style.top = '50%';
+        div.style.transform = 'translate(-50%, -50%)';
+        document.body.appendChild(div);
     }
     _createDefaultLayer() {
         this.add('bg');
@@ -459,7 +467,7 @@ export class Util {//小物
     static save(item, key) { localStorage.setItem(key, JSON.stringify(item)); }
     static load(key) { return JSON.parse(localStorage.getItem(key)); }
     static deleteSave(key) { localStorage.removeItem(key); }
-    static isPC() { return !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent); }
+    static isPC() { return !(window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768); }
     static isPortrait() { return window.innerHeight > window.innerWidth; }
 }
 class Rect {//矩形

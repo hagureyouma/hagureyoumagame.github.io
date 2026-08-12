@@ -2,7 +2,7 @@
 
 //by はぐれヨウマ
 'use strict';
-class cfgDefault {//エンジン設定の初期値
+class cfgDefault {//設定の初期値
     constructor() {
         this.screenSize = {
             width: 360,
@@ -20,6 +20,7 @@ class cfgDefault {//エンジン設定の初期値
             big: 40,
         };
         this.theme = {
+            bg: '#000000',
             text: '#ffffff',
             highlite: 'yellow'
         }
@@ -31,11 +32,11 @@ class cfgDefault {//エンジン設定の初期値
             name: 'saveData'
         }
         this.debug = {
-            drawPosSizeRect: false
+            drawPosSizeRect: true
         }
     }
 };
-export let cfg = new cfgDefault();//エンジン設定
+export let cfg = new cfgDefault();//設定
 //Font Awsomeの文字コード
 export const EMOJI = Object.freeze({
     GHOST: 'f6e2',
@@ -51,35 +52,66 @@ export const EMOJI = Object.freeze({
     HEART: 'f004',
     BOMB: 'f1e2',
 });
-class Game {//エンジン本体
+class Game {//ゲームエンジン本体
     constructor() {
-        document.body.style.backgroundColor = 'black';
+        document.body.style.backgroundColor = cfg.theme.bg;
         const width = cfg.screenSize.width;
         const height = cfg.screenSize.height;
-        this.screenRect = new Rect(0, 0, width, height);
-        this.rangeRect = new Rect(0, 0, width, height);
-        this.layers = new Layers(width, height);
+        this.screen = new Screen(width, height, this.layers = new Layers(width, height));
         this.root = new Mono(Coro, Child);
         this.input = new Input();
+        this.asset = new AssetLoader();
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
         this.fpsIndex = 0;
     }
-    get width() { return this.screenRect.width; };
-    get height() { return this.screenRect.height; };
+    get width() { return this.screen.width; };
+    get height() { return this.screen.height; };
     async start(create, assets = []) {
+        if (!await this.asset.load(assets)) return;
+        this.input.init(this.layers.div);
+        create?.();
+        this.time = performance.now();
+        this._mainloop();
+    }
+    _mainloop() {
+        const now = performance.now();
+        this.delta = Math.min((now - this.time) / 1000.0, 1 / 60);
+        this.time = now;
+
+        this.fpsBuffer[this.fpsIndex] = this.delta;
+        this.fpsIndex = (this.fpsIndex + 1) % 60;
+
+        this.input.update();
+        this.root.baseUpdate();
+        Child.clean();
+
+        this.layers.before();
+        this.root.baseDraw(this.layers.get('main').getContext());
+        this.layers.after();
+
+        requestAnimationFrame(this._mainloop.bind(this));
+    }
+    pushScene(scene) { this.root.child.add(scene); }
+    popScene() { this.root.child.pop(); }
+    setCoroutine(coro) { this.root.coro.start(coro); }
+    get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
+    get sec() { return this.time / 1000; }
+    save(data, key) { Util.save(data, key); }
+    load(key) { return Util.load(key); }
+    deleteSave(key) { Util.deleteSave(key); }
+}
+class AssetLoader {//アセット読み込み
+    async load(assets) {
         try {
             const pageLoadPromise = new Promise(resolve => addEventListener('load', resolve));
             await this.loadWebFontLoader().catch(err => console.error('WebFontの読み込み失敗', err));
             await this.loadAssets(assets).catch(err => console.error('アセットの読み込み失敗', err));
             await pageLoadPromise;
-
-            this.input.init(this.layers.div);
-            create?.();
-            this.time = performance.now();
-            this.mainloop();
+            return true;
         } catch (err) {
             console.error('なんかエラー起きたよ：', err);
+            return false;
         }
     }
     async loadWebFontLoader() {
@@ -128,38 +160,35 @@ class Game {//エンジン本体
             });
         }
     }
-    mainloop() {
-        const now = performance.now();
-        this.delta = Math.min((now - this.time) / 1000.0, 1 / 60);
-        this.time = now;
-
-        this.fpsBuffer[this.fpsIndex] = this.delta;
-        this.fpsIndex = (this.fpsIndex + 1) % 60;
-
-        this.input.update();
-        this.root.baseUpdate();
-        Child.clean();
-
-        this.layers.before();
-        this.root.baseDraw(this.layers.get('main').getContext());
-        this.layers.after();
-
-        requestAnimationFrame(this.mainloop.bind(this));
+}
+class Screen {//画面
+    constructor(width, height, layers) {
+        this.rect = new Rect(0, 0, width, height);
+        this.rangeRect = new Rect(0, 0, width, height);
+        this.layers = layers;
+        this.viewWidth = this.viewHeight = 0;
+        this.resize();
+        window.addEventListener('resize', this.resize.bind(this));
     }
-    pushScene(scene) { this.root.child.add(scene); }
-    popScene() { this.root.child.pop(); }
-    setCoroutine(coro) { this.root.coro.start(coro); }
-    isOutOfScreen(rect) { return !this.screenRect.isIntersect(rect); }
-    isWithinScreen(rect) { return !this.screenRect.isOverflow(rect); }
+    resize() {
+        if (Util.isPC) {
+            this.viewWidth = this.rect.width;
+            this.viewHeight = this.rect.height;
+        } else {
+            const scale = Math.min(window.innerWidth / this.rect.width, window.innerHeight / this.rect.height);
+            this.viewWidth = Math.round(this.rect.width * scale);
+            this.viewHeight = Math.round(this.rect.height * scale);
+        }
+        this.layers.resize(this.viewWidth, this.viewHeight);
+    }
+    get width() { return this.rect.width; };
+    get height() { return this.rect.height; };
+    get range() { return Math.abs(this.rangeRect.x); };
+    setRange(range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
+    isOut(rect) { return !this.rect.isIntersect(rect); }
+    isWithin(rect) { return !this.rect.isOverflow(rect); }
     isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
     isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
-    setRange(range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
-    get range() { return Math.abs(this.rangeRect.x); };
-    get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
-    get sec() { return this.time / 1000; }
-    save(data, key) { Util.save(data, key); }
-    load(key) { return Util.load(key); }
-    deleteSave(key) { Util.deleteSave(key); }
 }
 class Layers {//レイヤーコンテナ
     constructor(width, height) {
@@ -176,8 +205,6 @@ class Layers {//レイヤーコンテナ
         div.className = 'game-container';
         div.style.position = 'relative';
         div.style.display = 'block';
-        div.style.width = `${this.width}px`;
-        div.style.height = `${this.height}px`;
         div.style.padding = '0';
         div.style.margin = '0';
         document.body.insertAdjacentElement('beforebegin', div);
@@ -190,6 +217,11 @@ class Layers {//レイヤーコンテナ
         bgctx.fillStyle = 'black';
         bgctx.fillRect(0, 0, this.width, this.height);
         this.add('main');
+    }
+    resize(viewWidth, viewHeight) {
+        const div = this.div;
+        div.style.width = `${viewWidth}px`;
+        div.style.height = `${viewHeight}px`;
     }
     before() { for (const layer of this.layers) layer.before(); }
     after() { for (const layer of this.layers) layer.after(); }
@@ -222,6 +254,10 @@ class Layer {//レイヤー
         canvas.width = width;
         canvas.height = height;
         canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
         this.isUpdate = true;
         this.blur;
         this.isPauseBlur = false;
@@ -423,6 +459,8 @@ export class Util {//小物
     static save(item, key) { localStorage.setItem(key, JSON.stringify(item)); }
     static load(key) { return JSON.parse(localStorage.getItem(key)); }
     static deleteSave(key) { localStorage.removeItem(key); }
+    static isPC() { return !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent); }
+    static isPortrait() { return window.innerHeight > window.innerWidth; }
 }
 class Rect {//矩形
     constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -489,7 +527,7 @@ export class Mono {//ゲームオブジェクト
     }
     draw() { };
 }
-export class Coro {//コルーチン
+export class Coro {//コルーチンのコンポーネント
     constructor() {
         this.generators = new Map();
     }
@@ -1190,7 +1228,7 @@ export class OutOfScreenToRemove {//画面外に出ると削除コンポーネ�
         return this;
     }
     update() {
-        if (game.isOutOfScreen(this.owner.pos.rect)) this.owner.remove();
+        if (game.screen.isOut(this.owner.pos.rect)) this.owner.remove();
     }
 }
 export class OutOfRangeToRemove {//範囲外に出ると削除コンポーネント
@@ -1198,7 +1236,9 @@ export class OutOfRangeToRemove {//範囲外に出ると削除コンポーネン
         return this;
     }
     update() {
-        if (game.isOutOfRange(this.owner.pos.rect)) this.owner.remove();
+        if (game.screen.isOutOfRange(this.owner.pos.rect)) {
+            this.owner.remove();
+        }
     }
 }
 export class Menu extends Mono {//メニュー表示

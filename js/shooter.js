@@ -413,10 +413,10 @@ class Baddie extends Mono {//敵キャラ
         return [result, isMoveVirtical];
     }
     *routineBasicShot(user, pattern, shot) {
-        yield* waitForFrag(() => game.isWithinScreen(user.pos.rect)); //画面内に入るまで待機
+        yield* waitForFrag(() => game.screen.isWithin(user.pos.rect)); //画面内に入るまで待機
         yield* waitForTime(Util.rand(60) * game.delta); //ランダムで最大1秒まで待機
         while (true) {
-            if (game.isOutOfScreen(user.pos.rect)) yield undefined; //画面外にいるなら射撃しない
+            if (game.screen.isOut(user.pos.rect)) yield undefined; //画面外にいるなら射撃しない
             yield* shot(); //射撃
         }
     }
@@ -461,7 +461,7 @@ class Baddie extends Mono {//敵キャラ
         zako2: function* (user, pattern, bullets, scene) {
             const moveSpeed = 100;
             const shot1 = function* () {
-                yield* waitForFrag(() => game.isWithinScreen(user.pos.rect));
+                yield* waitForFrag(() => game.screen.isWithin(user.pos.rect));
                 yield* waitForTime(Util.rand(60) * game.delta);
                 bullets.mulitWay(user.pos.x, user.pos.y, { color: 'red' });
                 yield* waitForTime(2);
@@ -475,7 +475,7 @@ class Baddie extends Mono {//敵キャラ
                     user.coro.start(user.routineBasicShot(user, pattern, shot1));
                     yield* user.move.relative(game.width * 0.4, 0, moveSpeed, { easing: Ease.liner, min: 0 });
                     yield* user.move.relative(game.width * 0.3, 0, moveSpeed * 2, { easing: Ease.sinein, min: 0.5 });
-                    yield* user.move.relative(game.range + user.pos.width, 0, moveSpeed * 2);
+                    yield* user.move.relative(game.screen.range + user.pos.width, 0, moveSpeed * 2);
                     break;
                 case Baddie.spawnType.right:
                     yield* user.move.relative(game.width - user.pos.x, 0, moveSpeed * 2);
@@ -483,7 +483,7 @@ class Baddie extends Mono {//敵キャラ
                     user.coro.start(user.routineBasicShot(user, pattern, shot1));
                     yield* user.move.relative(-game.width * 0.4, 0, moveSpeed, { easing: Ease.liner, min: 0 });
                     yield* user.move.relative(-game.width * 0.3, 0, moveSpeed * 2, { easing: Ease.sinein, min: 0.5 });
-                    yield* user.move.relative(-(game.range + user.pos.width), 0, moveSpeed * 2);
+                    yield* user.move.relative(-(game.screen.range + user.pos.width), 0, moveSpeed * 2);
                     break;
                 default:
             }
@@ -1418,7 +1418,7 @@ class sharedData {//共用データ
 const shared = new sharedData()//共用データ変数
 //ゲーム実行
 game.start(() => {
-    game.setRange(game.width * 0.25);
+    game.screen.setRange(game.width * 0.25);
     game.input.keybind('z', 'z', { button: 1 });
     game.input.keybind('x', 'x', { button: 0 });
     game.input.keybind('c', 'c', { button: 2 });

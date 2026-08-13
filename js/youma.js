@@ -306,16 +306,8 @@ class Input {//入力
         this.keyIndex = new Map();
         this.keyData = [];
         this.padIndex;
-
-        this.touch = {
-            x: 0,
-            y: 0,
-            isStart: { current: false, buffer: false },
-            isMove: { current: false, buffer: false },
-            isEnd: { current: false, buffer: false },
-        }
     }
-    init(touchEventTarget) {
+    init() {
         addEventListener('keydown', this._keyEvent(true));
         addEventListener('keyup', this._keyEvent(false));
         addEventListener('gamepadconnected', e => this.padIndex = e.gamepad.index);
@@ -324,9 +316,6 @@ class Input {//入力
         this.keybind('right', 'ArrowRight', { button: 15, axes: 1 });
         this.keybind('up', 'ArrowUp', { button: 12, axes: 2 });
         this.keybind('down', 'ArrowDown', { button: 13, axes: 3 });
-        touchEventTarget.addEventListener('touchstart', this._touchEvent, { passive: false });
-        touchEventTarget.addEventListener('touchmove', this._touchEvent, { passive: false });
-        touchEventTarget.addEventListener('touchend', this._touchEvent, { passive: false });
     }
     _keyEvent(frag) {
         return e => {
@@ -335,25 +324,7 @@ class Input {//入力
             if (i === undefined) return;
             this.keyData[i].buffer = frag;
         };
-    }
-    _touchEvent(e) {
-        e.preventDefault();
-        const touches = e.changedTouches[0];
-        const rect = touches.target.getBoundingClientRect();
-        this.touchPos = {
-            x: (touches.clientX - rect.left) / rect.width * game.width,
-            y: (touches.clientY - rect.top) / rect.height * game.height
-        }
-        switch (e.type) {
-            case 'touchstart':
-                this.isTouchStartBuffer = true;
-            case 'touchmove':
-                this.isTouchMoveBuffer = true;
-            case 'touchend':
-                this.isTouchEndBuffer = true;
-        }
-        console.log(e.type);
-    }
+    }    
     update() {
         for (let i = 0; i < this.keyData.length; i++) {
             this.keyData[i].before = this.keyData[i].current;
@@ -373,12 +344,6 @@ class Input {//入力
                 }
             }
         }
-        this.isTouchStart = this.isTouchStartBuffer;
-        this.isTouchMove = this.isTouchMoveBuffer;
-        this.isTouchEnd = this.isTouchEndBuffer;
-        this.isTouchStartBuffer = false;
-        this.isTouchMoveBuffer = false;
-        this.isTouchEndBuffer = false;
     }
     keybind(name, key, { button = -1, axes = -1 } = {}) {
         const index = this.nameIndex.size;
@@ -472,7 +437,7 @@ export class Util {//小物
     static save(item, key) { localStorage.setItem(key, JSON.stringify(item)); }
     static load(key) { return JSON.parse(localStorage.getItem(key)); }
     static deleteSave(key) { localStorage.removeItem(key); }
-    static isPC() { return !(window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768); }
+    static isPC() { return !(window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768); }
     static isPortrait() { return window.innerHeight > window.innerWidth; }
 }
 class Rect {//矩形

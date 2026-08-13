@@ -36,7 +36,6 @@ class cfgDefault {//設定の初期値
         }
     }
 };
-export let cfg = new cfgDefault();//設定
 //Font Awsomeの文字コード
 export const EMOJI = Object.freeze({
     GHOST: 'f6e2',
@@ -54,15 +53,16 @@ export const EMOJI = Object.freeze({
 });
 class Game {//ゲームエンジン本体
     constructor() {
-        document.body.style.backgroundColor = cfg.theme.bg;
-        const width = cfg.screenSize.width;
-        const height = cfg.screenSize.height;
+        this.cfg = new cfgDefault();
+        document.body.style.backgroundColor = this.cfg.theme.bg;
+        const width = this.cfg.screenSize.width;
+        const height = this.cfg.screenSize.height;
         this.screen = new Screen(width, height);
         this.layers = new Layers(width, height);
         this.screen.init(this.layers);
-        this.root = new Mono(Coro, Child);
         this.input = new Input();
         this.asset = new AssetLoader();
+        this.root = new Mono(Coro, Child);
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
         this.fpsIndex = 0;
@@ -126,7 +126,7 @@ class AssetLoader {//アセット読み込み
         });
     }
     async loadAssets(assets) {
-        const fonts = new Set([cfg.font.default, cfg.font.emoji]);
+        const fonts = new Set([game.cfg.font.default, game.cfg.font.emoji]);
         await Promise.all(assets.map(asset => {
             if (typeof asset === 'string') {
                 switch (true) {
@@ -212,9 +212,7 @@ class Layers {//レイヤーコンテナ
         div.style.display = 'block';
         div.style.padding = '0';
         div.style.margin = '0';
-        div.style.left = '50%';
-        div.style.top = '50%';
-        div.style.transform = 'translate(-50%, -50%)';
+        div.style.top = '0';
         document.body.appendChild(div);
     }
     _createDefaultLayer() {
@@ -230,6 +228,13 @@ class Layers {//レイヤーコンテナ
         const div = this.div;
         div.style.width = `${viewWidth}px`;
         div.style.height = `${viewHeight}px`;
+        if (Util.isPC() || Util.isPortrait()) {
+            div.style.left = '0';
+            div.style.transform = 'translate(0, 0)';
+        } else {
+            div.style.left = '50%';
+            div.style.transform = 'translate(-50%, 0)';
+        }
     }
     before() { for (const layer of this.layers) layer.before(); }
     after() { for (const layer of this.layers) layer.after(); }
@@ -681,7 +686,7 @@ export class Color {//色コンポーネント
         this.reset();
     }
     reset() {
-        this.setColor(cfg.theme.text);
+        this.setColor(game.cfg.theme.text);
         this.alpha = this.baseAlpha = 1;
         this.func = undefined;
     }
@@ -753,7 +758,7 @@ export class Pos {//位置と大きさコンポーネント
         return this;
     }
     draw(ctx) {
-        if (!cfg.debug.drawPosSizeRect) return;
+        if (!game.cfg.debug.drawPosSizeRect) return;
         ctx.strokeStyle = 'red';
         ctx.globalAlpha = 1;
         ctx.strokeRect(this.left, this.top, this.width, this.height);
@@ -1068,8 +1073,8 @@ export class Moji {//文字コンポーネント
         this.text = this.beforeText = this.fontStyle = this.sizeCacheKey = '';
         this.textSplit = undefined;
         this.weight = 'normal';
-        this.size = cfg.fontSize.normal;
-        this.font = cfg.font.default.name;
+        this.size = game.cfg.fontSize.normal;
+        this.font = game.cfg.font.default.name;
         this.baseLine = 'top';
     }
     set(text = '', x = this.owner.pos.x, y = this.owner.pos.y, options = {}) {
@@ -1175,7 +1180,7 @@ export class Particle extends Mono {//パーティクル
             }
             if (emoji) {
                 t = this.child.pool(Particle.MojiParticleName);
-                t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1 });
+                t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
                 t.pos.angle = angle;
                 if (isRandomAngle) t.pos.angle = (t.pos.angle + Util.rand(359)) % 360;
                 t.move.rotate = rotate;
@@ -1252,7 +1257,7 @@ export class OutOfRangeToRemove {//範囲外に出ると削除コンポーネン
 export class Menu extends Mono {//メニュー表示
     constructor(x, y, size, options = {}) {
         super(Pos, Child);
-        const { icon = EMOJI.CAT, align = 1, color = cfg.theme.text, highlite = cfg.theme.highlite, isEnableCancel = false } = options;
+        const { icon = EMOJI.CAT, align = 1, color = game.cfg.theme.text, highlite = game.cfg.theme.highlite, isEnableCancel = false } = options;
         this.pos.x = x;
         this.pos.y = y;
         this.pos.align = align;
@@ -1261,8 +1266,8 @@ export class Menu extends Mono {//メニュー表示
         this.color = color;
         this.highlite = highlite;
         this.isEnableCancel = isEnableCancel;
-        this.child.add(this.curL = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: cfg.font.emoji.name, align: 2, valign: 1 }));
-        this.child.add(this.curR = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: cfg.font.emoji.name, valign: 1 }));
+        this.child.add(this.curL = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: game.cfg.font.emoji.name, align: 2, valign: 1 }));
+        this.child.add(this.curR = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: game.cfg.font.emoji.name, valign: 1 }));
         this.indexOffset = this.child.objs.length;
     }
     add(text) {
@@ -1273,7 +1278,7 @@ export class Menu extends Mono {//メニュー表示
         function* move(key, direction) {
             if (!game.input.isDown(key)) return;
             this.moveIndex((this.index + direction) % length);
-            yield* waitForTimeOrFrag(game.input.isPress(key) ? cfg.input.repeatWaitFirst : cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
+            yield* waitForTimeOrFrag(game.input.isPress(key) ? game.cfg.input.repeatWaitFirst : game.cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
         }
         this.moveIndex(newIndex);
         while (true) {

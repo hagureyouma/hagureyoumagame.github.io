@@ -120,7 +120,7 @@ class UnitAction {
         this.targetBeforeX = this.targetBeforeY = 0;
     }
     update() {
-        if (this.horming != 0&& this.target.isExist) {
+        if (this.horming != 0 && this.target.isExist) {
             const pos = this.owner.pos;
             const tPos = this.target.pos;
             let tx = this.targetBeforeX;
@@ -522,7 +522,7 @@ class Baddie extends Mono {//敵キャラ
                 //取り巻きの最大数が違うなら新規に呼び出す
                 if (minions.length != count) {
                     removeMinions();
-                    minions = scene.spawner.formation(scene.baddies,Baddie.name, Spawner.form.circle, -1, -1, count, distance, minionData, 0, bullets, scene, user, true);
+                    minions = scene.spawner.formation(scene.baddies, Baddie.name, Spawner.form.circle, -1, -1, count, distance, minionData, 0, bullets, scene, user, true);
                     for (let i = 0; i < minions.length; i++) {
                         initMinion(minions, i);
                     }
@@ -542,7 +542,7 @@ class Baddie extends Mono {//敵キャラ
                     const minion = minions[i];
                     if (minion) continue;
                     const deg = i * baseDeg + degOffset;
-                    minions[i] = scene.spawner.spawn(scene.baddies,Baddie.name,Util.degToX(deg) * distance, Util.degToY(deg) * distance, minionData, 0, bullets, scene, user, true);
+                    minions[i] = scene.spawner.spawn(scene.baddies, Baddie.name, Util.degToX(deg) * distance, Util.degToY(deg) * distance, minionData, 0, bullets, scene, user, true);
                     initMinion(minions, i);
                 }
                 yield* waitForTime(time * 0.5);
@@ -999,7 +999,7 @@ class ScenePlay extends Mono {//プレイ画面
     * coroStage() {
         const items = ['bomb'];
         const itemSpawnRate = 0.05;
-        let itemSpawnCounter=0;
+        let itemSpawnCounter = 0;
         const appears = ['crow', 'dove', 'obake', 'bigcrow'];
         const bossName = 'greatcrow';
         const phaseSec = 30;
@@ -1018,7 +1018,7 @@ class ScenePlay extends Mono {//プレイ画面
                 this.spawner.formation(this.baddies, Baddie.name, formation, -1, -1, spawnCount, -1, data, 0, this.baddiesbullets, this, undefined, false);
                 yield* waitForTime(Util.rand(spawnCount * spawnIntervalFactor * 0.5, spawnIntervalFactor))
                 //アイテム出現    
-                if (itemSpawnCounter>=20||Util.rand(100) < itemSpawnRate * 100) {
+                if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {
                     itemSpawnCounter = 0;
                     const itemName = items[Util.rand(items.length - 1)];
                     const data = datas.items[itemName];
@@ -1032,7 +1032,7 @@ class ScenePlay extends Mono {//プレイ画面
         {//ステージボス登場
             const data = datas.baddies[bossName];
             const formation = data.forms[0];
-            const [boss] = this.spawner.formation(this.baddies, Baddie.name,formation, game.width * 0.5, -1, 1, -1, data, 0, this.baddiesbullets, this, 0, undefined);
+            const [boss] = this.spawner.formation(this.baddies, Baddie.name, formation, game.width * 0.5, -1, 1, -1, data, 0, this.baddiesbullets, this, 0, undefined);
             const waitForBossDefeat = wait();
             boss.unit.onDefeat = () => {
                 waitForBossDefeat.return();
@@ -1418,22 +1418,23 @@ class sharedData {//共用データ
 const shared = new sharedData()//共用データ変数
 //ゲーム実行
 game.start(() => {
-    game.screen.setRange(game.width * 0.25);
+    //キー割り当て
     game.input.keybind('z', 'z', { button: 1 });
     game.input.keybind('x', 'x', { button: 0 });
     game.input.keybind('c', 'c', { button: 2 });
-
+    //背景
     const ctx = game.layers.get('bg').getContext();
     const grad = ctx.createLinearGradient(0, 0, 0, game.height);
     grad.addColorStop(0, "#2B4C99");
     grad.addColorStop(1, "#AFC8E4");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, game.width, game.height);
-
+    //レイヤー
     game.layers.add('be', 'main');
     game.layers.add(['effect', 'ui']);
     game.layers.get('effect').enableBlur();
-
+    //セーブデータのロード
     shared.load(game.cfg.saveData.name);
+    //タイトルシーンの表示
     game.pushScene(new SceneTitle());
 });

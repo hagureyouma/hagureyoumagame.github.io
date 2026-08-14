@@ -1,4 +1,5 @@
-//ヨウマエンジン
+// ヨウマぷちエンジン
+// Youma Petit Engine
 
 //by はぐれヨウマ
 'use strict';
@@ -51,28 +52,24 @@ export const EMOJI = Object.freeze({
     HEART: 'f004',
     BOMB: 'f1e2',
 });
-class Game {//ゲームエンジン本体
+class Game {//エンジン本体
     constructor() {
         this.cfg = new cfgDefault();
         document.body.style.backgroundColor = this.cfg.theme.bg;
-        const width = this.cfg.screenSize.width;
-        const height = this.cfg.screenSize.height;
         this.asset = new AssetLoader();
-        this.screen = new Screen(width, height);
-        this.layers = new Layers(width, height, this.screen.div);
+        this.screen = new Screen(this.cfg.screenSize.width, this.cfg.screenSize.height);
+        this.layers = new Layers(this.screen);
         this.input = new Input(this.screen.div);
-        this.screen.addResize((w, h) => this.layers.resize(w, h));
-        this.screen.resize();
         this.root = new Mono(Coro, Child);
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
         this.fpsIndex = 0;
+        this.screen.resize();
     }
-    get width() { return this.screen.width; };
-    get height() { return this.screen.height; };
+    get width() { return this.screen.width; }
+    get height() { return this.screen.height; }
     async start(create, assets = []) {
         if (!await this.asset.load(assets)) return;
-        this.input.init(this.layers.div);
         create?.();
         this.time = performance.now();
         this._mainloop();
@@ -168,6 +165,7 @@ class Screen {//画面
     constructor(width, height) {
         this.rect = new Rect(0, 0, width, height);
         this.rangeRect = new Rect(0, 0, width, height);
+        this.setRange(width * 0.25);
         this.viewWidth = this.viewHeight = 0;
         this.resizes = [];
         window.addEventListener('resize', () => this.resize());
@@ -176,7 +174,7 @@ class Screen {//画面
     _createScreenDiv() {
         const div = this.div = document.createElement('div');
         div.className = 'screen';
-        div.style.cssText += 'position: fixed; display: block; padding: 0; margin: 0; top: 0;';
+        div.style.cssText += `position: fixed; display: block; padding: 0; margin: 0; top: 0;`;
         document.body.appendChild(div);
     }
     addResize(func) {
@@ -203,13 +201,14 @@ class Screen {//画面
     isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
 }
 class Layers {//レイヤーコンテナ
-    constructor(width, height, screenDiv) {
+    constructor(screen) {
         this.layersMap = new Map();
         this.layers = [];
-        this.width = width;
-        this.height = height;
-        this._createContainer(screenDiv);
+        this.width = screen.width;
+        this.height = screen.height;
+        this._createContainer(screen.div);
         this._createDefaultLayer();
+        screen.addResize((w, h) => this.resize(w, h));
     }
     _createContainer(screenDiv) {
         const div = this.div = document.createElement('div');
@@ -291,17 +290,19 @@ class Layer {//レイヤー
 }
 class Input {//入力
     constructor(screenDiv) {
-        this.nameIndex = new Map();
-        this.keyIndex = new Map();
-        this.keyData = [];
+        this.keys = new Map();
         this.padIndex;
-        this.vpad = new VirtualPad(screenDiv);
+        this.vpad = Util.isTouch() ? new VirtualPad(screenDiv) : undefined;
+        this._setEventListener();
+        this._setDefaultKeyBinds();
     }
-    init() {
+    _setEventListener() {
         addEventListener('keydown', this._keyEvent(true));
         addEventListener('keyup', this._keyEvent(false));
         addEventListener('gamepadconnected', e => this.padIndex = e.gamepad.index);
         addEventListener('gamepaddisconnected', e => this.padIndex = undefined);
+    }
+    _setDefaultKeyBinds() {
         this.keybind('left', 'ArrowLeft', { button: 14, axes: 0 });
         this.keybind('right', 'ArrowRight', { button: 15, axes: 1 });
         this.keybind('up', 'ArrowUp', { button: 12, axes: 2 });
@@ -310,45 +311,54 @@ class Input {//入力
     _keyEvent(frag) {
         return e => {
             e.preventDefault();
-            const i = this.keyIndex.get(e.key);
-            if (i === undefined) return;
-            this.keyData[i].buffer = frag;
+            for (const key of this.keys.values()) {
+                if (key.key !== e.key) continue;
+                key.buffer = frag;
+                return;
+            }
         };
     }
     update() {
-        for (let i = 0; i < this.keyData.length; i++) {
-            this.keyData[i].before = this.keyData[i].current;
-            this.keyData[i].current = this.keyData[i].buffer;
+        //キーボード
+        for (const key of this.keys.values()) {
+            key.before = key.current;
+            key.current = key.buffer;
         }
+        //ゲームパッド
         if (this.padIndex !== undefined) {
             const pad = navigator.getGamepads()[this.padIndex];
-            for (const key of this.keyData) {
-                if (key.button > -1) key.current |= pad.buttons[key.button].pressed;
+            for (const key of this.keys.values()) {
+                if (key.button > -1) key.current |= pad.buttons[key.button].pressed || this.vpad.buttons[key.button];
                 if (key.axes > -1) {
                     const index = Math.floor(key.axes / 2);
-                    if (Util.isEven(key.axes)) {
-                        key.current |= pad.axes[index] < -0.5;
-                    } else {
-                        key.current |= pad.axes[index] > 0.5;
-                    }
+                    const sign = -1 + (key.axes % 2 * 2)
+                    key.current |= pad.axes[index] * sign > 0.5;
+                }
+            }
+        }
+        //仮想パッド
+        if (this.vpad) {
+            for (const key of this.keys.values()) {
+                if (key.button > -1) key.current |= this.vpad.buttons[key.button];
+                if (key.axes > -1) {
+                    const index = Math.floor(key.axes / 2);
+                    const sign = -1 + (key.axes % 2 * 2)
+                    key.current |= this.vpad.axes[index] * sign > 0.5;
                 }
             }
         }
     }
     keybind(name, key, { button = -1, axes = -1 } = {}) {
-        const index = this.nameIndex.size;
-        this.nameIndex.set(name, index);
-        this.keyIndex.set(key, index);
-        this.keyData.push({ buffer: false, before: false, current: false, button: button, axes: axes });
+        this.keys.set(name, { buffer: false, before: false, current: false, key: key, button: button, axes: axes });
     }
-    isDown = (name) => this.keyData[this.nameIndex.get(name)].current;
-    isPress = (name) => this.keyData[this.nameIndex.get(name)].current && !this.keyData[this.nameIndex.get(name)].before;
-    isUp = (name) => !this.keyData[this.nameIndex.get(name)].current && this.keyData[this.nameIndex.get(name)].before;
+    isDown = (name) => this.keys.get(name).current;
+    isPress = (name) => this.keys.get(name).current && !this.keys.get(name).before;
+    isUp = (name) => !this.keys.get(name).current && this.keys.get(name).before;
 }
 class VirtualPad {//仮想パッド
     constructor(screenDiv) {
-        this.x = this.y = 0;
-        this.buttons = {};
+        this.axes = [0, 0];
+        this.buttons = new Array(4).fill(false);
         this.stickPointerId = null;
         screenDiv.insertAdjacentHTML('beforeend', `
             <div id="vpad">
@@ -356,10 +366,10 @@ class VirtualPad {//仮想パッド
                     <div id="stick"></div>
                 </div>
                 <div id="buttons">
-                    <button data-button="A">A</button>
-                    <button data-button="B">B</button>
-                    <button data-button="X">X</button>
-                    <button data-button="Y">Y</button>
+                    <button data-button="0">A</button>
+                    <button data-button="1">B</button>
+                    <button data-button="2">X</button>
+                    <button data-button="3">Y</button>
                 </div>
             </div>
         `);
@@ -438,19 +448,19 @@ class VirtualPad {//仮想パッド
     }
     _setButtonEventListeners() {
         document.querySelectorAll('#buttons button').forEach(button => {
-            const name = button.dataset.button;
+            const index = Number(button.dataset.button);
             button.addEventListener('pointerdown', (e) => {
                 button.setPointerCapture(e.pointerId);
-                this.buttons[name] = true;
-                console.log(name);
+                this.buttons[index] = true;
+                console.log(index);
             });
             button.addEventListener('pointerup', (e) => {
                 button.releasePointerCapture(e.pointerId);
-                this.buttons[name] = false;
+                this.buttons[index] = false;
             });
             button.addEventListener('pointercancel', (e) => {
                 button.releasePointerCapture(e.pointerId);
-                this.buttons[name] = false;
+                this.buttons[index] = false;
             });
         });
     }
@@ -466,14 +476,15 @@ class VirtualPad {//仮想パッド
             x = x / length * radius;
             y = y / length * radius;
         }
-        this.x = x / radius;
-        this.y = y / radius;
+        this.axes[0] = x / radius;
+        this.axes[1] = y / radius;
         this.stick.style.transform = `translate(calc(-50% + ${x}px),calc(-50% + ${y}px))`;
-        console.log(`Stick position: x=${this.x.toFixed(2)}, y=${this.y.toFixed(2)}`);
+        console.log(`Stick position: x=${this.axes[0].toFixed(2)}, y=${this.axes[1].toFixed(2)}`);
     }
     _resetStick() {
         this.stickPointerId = null;
-        this.x = this.y = 0;
+        this.axes[0] = 0;
+        this.axes[1] = 0;
         this.stick.style.transform = `translate(-50%, -50%)`;
     }
 }

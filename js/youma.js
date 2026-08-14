@@ -57,11 +57,12 @@ class Game {//ゲームエンジン本体
         document.body.style.backgroundColor = this.cfg.theme.bg;
         const width = this.cfg.screenSize.width;
         const height = this.cfg.screenSize.height;
-        this.screen = new Screen(width, height);
-        this.layers = new Layers(width, height);
-        this.screen.init(this.layers);
-        this.input = new Input();
         this.asset = new AssetLoader();
+        this.screen = new Screen(width, height);
+        this.layers = new Layers(width, height, this.screen.div);
+        this.input = new Input(this.screen.div);
+        this.screen.addResize((w, h) => this.layers.resize(w, h));
+        this.screen.resize();
         this.root = new Mono(Coro, Child);
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
@@ -168,15 +169,21 @@ class Screen {//画面
         this.rect = new Rect(0, 0, width, height);
         this.rangeRect = new Rect(0, 0, width, height);
         this.viewWidth = this.viewHeight = 0;
-        this.layers = undefined;
+        this.resizes = [];
         window.addEventListener('resize', () => this.resize());
+        this._createScreenDiv();
     }
-    init(layers) {
-        this.layers = layers;
-        this.resize();
+    _createScreenDiv() {
+        const div = this.div = document.createElement('div');
+        div.className = 'screen';
+        div.style.cssText += 'position: fixed; display: block; padding: 0; margin: 0; top: 0;';
+        document.body.appendChild(div);
+    }
+    addResize(func) {
+        this.resizes.push(func);
     }
     resize() {
-        if (Util.isPC()) {
+        if (!Util.isTouch()) {
             this.viewWidth = this.rect.width;
             this.viewHeight = this.rect.height;
         } else {
@@ -184,7 +191,7 @@ class Screen {//画面
             this.viewWidth = Math.round(this.rect.width * scale);
             this.viewHeight = Math.round(this.rect.height * scale);
         }
-        this.layers?.resize(this.viewWidth, this.viewHeight);
+        for (const resize of this.resizes) resize(this.viewWidth, this.viewHeight);
     }
     get width() { return this.rect.width; };
     get height() { return this.rect.height; };
@@ -196,24 +203,19 @@ class Screen {//画面
     isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
 }
 class Layers {//レイヤーコンテナ
-    constructor(width, height) {
+    constructor(width, height, screenDiv) {
         this.layersMap = new Map();
         this.layers = [];
         this.width = width;
         this.height = height;
-        this._createContainer();
+        this._createContainer(screenDiv);
         this._createDefaultLayer();
-        //this.vpad = new VirtualPad(gameContainer);
     }
-    _createContainer() {
+    _createContainer(screenDiv) {
         const div = this.div = document.createElement('div');
         div.className = 'game-container';
-        div.style.position = 'fixed';
-        div.style.display = 'block';
-        div.style.padding = '0';
-        div.style.margin = '0';
-        div.style.top = '0';
-        document.body.appendChild(div);
+        div.style.cssText += 'position: fixed; display: block; padding: 0; margin: 0; top: 0;';
+        screenDiv.appendChild(div);
     }
     _createDefaultLayer() {
         this.add('bg');
@@ -225,16 +227,7 @@ class Layers {//レイヤーコンテナ
         this.add('main');
     }
     resize(viewWidth, viewHeight) {
-        const div = this.div;
-        div.style.width = `${viewWidth}px`;
-        div.style.height = `${viewHeight}px`;
-        if (Util.isPC() || Util.isPortrait()) {
-            div.style.left = '0';
-            div.style.transform = 'translate(0, 0)';
-        } else {
-            div.style.left = '50%';
-            div.style.transform = 'translate(-50%, 0)';
-        }
+        this.div.style.cssText += `width:${viewWidth}px;height:${viewHeight}px; ${Util.isTouch() ? 'left:50%;transform:translate(-50%,0);' : 'left:0;transform:translate(0,0);'} `;
     }
     before() { for (const layer of this.layers) layer.before(); }
     after() { for (const layer of this.layers) layer.after(); }
@@ -266,11 +259,7 @@ class Layer {//レイヤー
         canvas.className = name;
         canvas.width = width;
         canvas.height = height;
-        canvas.style.position = 'absolute';
-        canvas.style.top = '0';
-        canvas.style.left = '0';
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
+        canvas.style.cssText += 'position: absolute; top: 0; left: 0; width: 100%; height: 100%;';
         this.isUpdate = true;
         this.blur;
         this.isPauseBlur = false;
@@ -301,11 +290,12 @@ class Layer {//レイヤー
     }
 }
 class Input {//入力
-    constructor() {
+    constructor(screenDiv) {
         this.nameIndex = new Map();
         this.keyIndex = new Map();
         this.keyData = [];
         this.padIndex;
+        this.vpad = new VirtualPad(screenDiv);
     }
     init() {
         addEventListener('keydown', this._keyEvent(true));
@@ -324,7 +314,7 @@ class Input {//入力
             if (i === undefined) return;
             this.keyData[i].buffer = frag;
         };
-    }    
+    }
     update() {
         for (let i = 0; i < this.keyData.length; i++) {
             this.keyData[i].before = this.keyData[i].current;
@@ -355,36 +345,136 @@ class Input {//入力
     isPress = (name) => this.keyData[this.nameIndex.get(name)].current && !this.keyData[this.nameIndex.get(name)].before;
     isUp = (name) => !this.keyData[this.nameIndex.get(name)].current && this.keyData[this.nameIndex.get(name)].before;
 }
-class VirtualPad {
-    constructor(gameContainer) {
-        this.init(gameContainer);
+class VirtualPad {//仮想パッド
+    constructor(screenDiv) {
+        this.x = this.y = 0;
+        this.buttons = {};
+        this.stickPointerId = null;
+        screenDiv.insertAdjacentHTML('beforeend', `
+            <div id="vpad">
+                <div id="stick_area">
+                    <div id="stick"></div>
+                </div>
+                <div id="buttons">
+                    <button data-button="A">A</button>
+                    <button data-button="B">B</button>
+                    <button data-button="X">X</button>
+                    <button data-button="Y">Y</button>
+                </div>
+            </div>
+        `);
+        document.head.insertAdjacentHTML('beforeend', `<style id="vpad-style">
+            #vpad {
+                position:fixed;
+                left:0;
+                bottom:0;
+                width:100%;
+                height:100%;
+                pointer-events:none;
+                user-select:none;
+            }
+            #stick_area {
+                position:absolute;
+                left:30px;
+                bottom:30px;
+                width:100px;
+                height:100px;
+                border-radius:50%;
+                background-color:rgba(255,255,255,0.2);
+                pointer-events:auto;
+                touch-action:none;
+            }
+            #stick {
+                position:absolute;
+                left:50%;
+                top:50%;
+                width:40px;
+                height:40px;
+                border-radius:50%;
+                background-color:rgba(255,255,255,0.5);
+                transform:translate(-50%,-50%);
+            }
+            #buttons {
+                position:absolute;
+                right:30px;
+                bottom:30px;
+                display:grid;
+                grid-template-columns:60px 60px;
+                gap: 10px;pointer-events:auto;
+            }
+            #buttons button {
+                width:60px;
+                height:60px;
+                border-radius:50%;
+                border: 2px solid white;
+                background-color:rgba(255,255,255,0.5);
+                color:white;
+                touch-action:none;
+                user-select:none;
+            }
+            #buttons button:active {
+                background-color: rgba(170,170,170,0.5);
+            }
+            </style>`
+        );
+        this.stickArea = document.getElementById('stick_area');
+        this.stick = document.getElementById('stick');
+        this._setStickEventListeners();
+        this._setButtonEventListeners();
     }
-    init(gameContainer) {
-        const vpad = document.createElement('div');
-        vpad.id = 'vpad';
-        gameContainer.appendChild(vpad);
-
-        const stickBase = document.createElement('div');
-        stickBase.id = 'stickBase';
-        stickBase.style.position = 'fixed';
-        stickBase.style.bottom = '50px';
-        stickBase.style.left = '50px';
-        stickBase.style.width = '150px';
-        stickBase.style.height = '150px';
-        stickBase.style.touchAction = 'none';
-        stickBase.style.background = 'rgba(255,255,255,0.5)';
-        vpad.appendChild(stickBase);
-
-        const stickKnob = document.createElement('div');
-        stickKnob.id = 'stickKnob';
-        stickKnob.style.position = 'absolute';
-        stickKnob.style.top = '50%';
-        stickKnob.style.left = '50%';
-        stickKnob.style.width = '50px';
-        stickKnob.style.height = '50px';
-        stickKnob.style.pointerEvents = 'none';
-        stickKnob.style.background = 'rgba(255,255,255,0.5)';
-        stickBase.appendChild(stickKnob);
+    _setStickEventListeners() {
+        this.stickArea.addEventListener('pointerdown', (e) => {
+            this.stickPointerId = e.pointerId;
+            this.stickArea.setPointerCapture(this.stickPointerId);
+            this._updateStick(e);
+            console.log(e);
+        });
+        this.stickArea.addEventListener('pointermove', (e) => {
+            if (this.stickPointerId !== e.pointerId) return;
+            this._updateStick(e);
+        });
+        this.stickArea.addEventListener('pointerup', (e) => { this._resetStick(); });
+        this.stickArea.addEventListener('pointercancel', (e) => { this._resetStick(); });
+    }
+    _setButtonEventListeners() {
+        document.querySelectorAll('#buttons button').forEach(button => {
+            const name = button.dataset.button;
+            button.addEventListener('pointerdown', (e) => {
+                button.setPointerCapture(e.pointerId);
+                this.buttons[name] = true;
+                console.log(name);
+            });
+            button.addEventListener('pointerup', (e) => {
+                button.releasePointerCapture(e.pointerId);
+                this.buttons[name] = false;
+            });
+            button.addEventListener('pointercancel', (e) => {
+                button.releasePointerCapture(e.pointerId);
+                this.buttons[name] = false;
+            });
+        });
+    }
+    _updateStick(e) {
+        const rect = this.stickArea.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        let x = e.clientX - centerX;
+        let y = e.clientY - centerY;
+        const radius = rect.width / 2;
+        const length = Math.hypot(x, y);
+        if (length > radius) {
+            x = x / length * radius;
+            y = y / length * radius;
+        }
+        this.x = x / radius;
+        this.y = y / radius;
+        this.stick.style.transform = `translate(calc(-50% + ${x}px),calc(-50% + ${y}px))`;
+        console.log(`Stick position: x=${this.x.toFixed(2)}, y=${this.y.toFixed(2)}`);
+    }
+    _resetStick() {
+        this.stickPointerId = null;
+        this.x = this.y = 0;
+        this.stick.style.transform = `translate(-50%, -50%)`;
     }
 }
 export class Util {//小物
@@ -437,7 +527,7 @@ export class Util {//小物
     static save(item, key) { localStorage.setItem(key, JSON.stringify(item)); }
     static load(key) { return JSON.parse(localStorage.getItem(key)); }
     static deleteSave(key) { localStorage.removeItem(key); }
-    static isPC() { return !(window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768); }
+    static isTouch() { return navigator.maxTouchPoints > 0; }
     static isPortrait() { return window.innerHeight > window.innerWidth; }
 }
 class Rect {//矩形
@@ -1040,7 +1130,7 @@ export class Moji {//文字コンポーネント
         this.weight = 'normal';
         this.size = game.cfg.fontSize.normal;
         this.font = game.cfg.font.default.name;
-        this.baseLine = 'top';
+        this.baseLine = 'middle';
     }
     set(text = '', x = this.owner.pos.x, y = this.owner.pos.y, options = {}) {
         const { size = this.size, color = this.owner.color.value, font = this.font, weight = this.weight, align = this.owner.pos.align, valign = this.owner.pos.valign, angle = this.owner.pos.angle } = options;
@@ -1096,7 +1186,7 @@ export class Moji {//文字コンポーネント
         ctx.rotate(pos.angle * Util.radian);
         this.owner.color.applyContext(ctx);
         for (let i = 0; i < this.textSplit.length; i++) {
-            ctx.fillText(this.textSplit[i], -(pos.width * 0.5), -(pos.height * 0.5) + (i * this.lineHeight));
+            ctx.fillText(this.textSplit[i], -(pos.width * 0.5), -(pos.height * 0.5) + (this.size * 0.5) + (i * this.lineHeight));
         }
         ctx.restore();
     }

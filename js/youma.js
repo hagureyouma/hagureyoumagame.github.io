@@ -3,7 +3,7 @@
 
 //by はぐれヨウマ
 'use strict';
-class cfgDefault {//設定の初期値
+class Config {//設定の初期値
     constructor() {
         this.screenSize = {
             width: 360,
@@ -28,6 +28,10 @@ class cfgDefault {//設定の初期値
         this.input = {
             repeatWaitFirst: 0.25,
             repeatWait: 0.125,
+        }
+        this.vpad = {
+            buttonAreaSize: 160,
+            buttonSize: 60,
         }
         this.saveData = {
             name: 'saveData'
@@ -54,12 +58,12 @@ export const EMOJI = Object.freeze({
 });
 class Game {//エンジン本体
     constructor() {
-        this.cfg = new cfgDefault();
+        this.cfg = new Config();
         document.body.style.backgroundColor = this.cfg.theme.bg;
         this.asset = new AssetLoader();
         this.screen = new Screen(this.cfg.screenSize.width, this.cfg.screenSize.height);
-        this.layers = new Layers(this.screen);
-        this.input = new Input(this.screen.div);
+        this.layers = new Layers(this.screen);;
+        this.input = new Input(this.vpad = new VirtualPad(this.screen, this.cfg.vpad));
         this.root = new Mono(Coro, Child);
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
@@ -167,7 +171,7 @@ class Screen {//画面
         this.rangeRect = new Rect(0, 0, width, height);
         this.setRange(width * 0.25);
         this.viewWidth = this.viewHeight = 0;
-        this.resizes = [];
+        this.resizeCallback = [];
         window.addEventListener('resize', () => this.resize());
         this._createScreenDiv();
     }
@@ -177,8 +181,8 @@ class Screen {//画面
         div.style.cssText += `position: fixed; display: block; padding: 0; margin: 0; top: 0;`;
         document.body.appendChild(div);
     }
-    addResize(func) {
-        this.resizes.push(func);
+    addResizeCallback(func) {
+        this.resizeCallback.push(func);
     }
     resize() {
         if (!Util.isTouch()) {
@@ -189,7 +193,7 @@ class Screen {//画面
             this.viewWidth = Math.round(this.rect.width * scale);
             this.viewHeight = Math.round(this.rect.height * scale);
         }
-        for (const resize of this.resizes) resize(this.viewWidth, this.viewHeight);
+        for (const resize of this.resizeCallback) resize(this.viewWidth, this.viewHeight);
     }
     get width() { return this.rect.width; };
     get height() { return this.rect.height; };
@@ -200,7 +204,7 @@ class Screen {//画面
     isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
     isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
 }
-class Layers {//レイヤーコンテナ
+class Layers {//レイヤーのコンテナ
     constructor(screen) {
         this.layersMap = new Map();
         this.layers = [];
@@ -208,7 +212,7 @@ class Layers {//レイヤーコンテナ
         this.height = screen.height;
         this._createContainer(screen.div);
         this._createDefaultLayer();
-        screen.addResize((w, h) => this.resize(w, h));
+        screen.addResizeCallback((w, h) => this.resize(w, h));
     }
     _createContainer(screenDiv) {
         const div = this.div = document.createElement('div');
@@ -289,10 +293,10 @@ class Layer {//レイヤー
     }
 }
 class Input {//入力
-    constructor(screenDiv) {
+    constructor(vpad) {
         this.keys = new Map();
         this.padIndex;
-        this.vpad = Util.isTouch() ? new VirtualPad(screenDiv) : undefined;
+        this.vpad = vpad;
         this._setEventListener();
         this._setDefaultKeyBinds();
     }
@@ -337,13 +341,13 @@ class Input {//入力
             }
         }
         //仮想パッド
-        if (this.vpad) {
+        if (this.vpad.isEnable) {
             for (const key of this.keys.values()) {
                 if (key.button > -1) key.current |= this.vpad.buttons[key.button];
                 if (key.axes > -1) {
                     const index = Math.floor(key.axes / 2);
                     const sign = -1 + (key.axes % 2 * 2)
-                    key.current |= this.vpad.axes[index] * sign > 0.5;
+                    key.current |= this.vpad.axes[index] * sign > 0.1;
                 }
             }
         }
@@ -356,11 +360,11 @@ class Input {//入力
     isUp = (name) => !this.keys.get(name).current && this.keys.get(name).before;
 }
 class VirtualPad {//仮想パッド
-    constructor(screenDiv) {
+    constructor(screen, vpadCfg) {
         this.axes = [0, 0];
         this.buttons = new Array(4).fill(false);
         this.stickPointerId = null;
-        screenDiv.insertAdjacentHTML('beforeend', `
+        screen.div.insertAdjacentHTML('beforeend', `
             <div id="vpad">
                 <div id="stick_area">
                     <div id="stick"></div>
@@ -373,6 +377,8 @@ class VirtualPad {//仮想パッド
                 </div>
             </div>
         `);
+        const buttonAreaSize = vpadCfg.buttonAreaSize;
+        const buttonSize = vpadCfg.buttonSize;
         document.head.insertAdjacentHTML('beforeend', `<style id="vpad-style">
             #vpad {
                 position:fixed;
@@ -408,11 +414,13 @@ class VirtualPad {//仮想パッド
                 position:absolute;
                 right:30px;
                 bottom:30px;
-                display:grid;
-                grid-template-columns:60px 60px;
-                gap: 10px;pointer-events:auto;
+                width:${buttonAreaSize}px;
+                height:${buttonAreaSize}px;
+                pointer-events:auto;
+
             }
             #buttons button {
+                position:absolute;
                 width:60px;
                 height:60px;
                 border-radius:50%;
@@ -422,16 +430,42 @@ class VirtualPad {//仮想パッド
                 touch-action:none;
                 user-select:none;
             }
+            #buttons button[data-button="0"] {
+                left:50%;
+                bottom:0;
+                transform:translate(-50%,0);
+            }
+            #buttons button[data-button="1"] {
+                right:0;
+                top:50%;
+                transform:translate(0,-50%);
+            }
+            #buttons button[data-button="2"] {
+                left:0;
+                top:50%;
+                transform:translate(0,-50%);
+
+            }
+            #buttons button[data-button="3"] {
+                left:50%;
+                top:0;
+                transform:translate(-50%,0);
+
+            }
             #buttons button:active {
                 background-color: rgba(170,170,170,0.5);
             }
             </style>`
         );
+        this.vpad = document.getElementById('vpad');
         this.stickArea = document.getElementById('stick_area');
         this.stick = document.getElementById('stick');
         this._setStickEventListeners();
         this._setButtonEventListeners();
+        screen.addResizeCallback(() => this.resize());
     }
+    get isEnable() { return this.vpad.style.display === ''; }
+    resize() { this.vpad.style.display = Util.isTouch() ? '' : 'none'; }
     _setStickEventListeners() {
         this.stickArea.addEventListener('pointerdown', (e) => {
             this.stickPointerId = e.pointerId;
@@ -545,7 +579,7 @@ class Rect {//矩形
     constructor(x = 0, y = 0, width = 0, height = 0) {
         this.set(x, y, width, height);
     }
-    set(x, y, width, height) {
+    set(x = this.x, y = this.y, width = this.width, height = this.height) {
         this.x = x;
         this.y = y;
         this.width = width;

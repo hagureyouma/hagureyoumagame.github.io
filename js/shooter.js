@@ -19,7 +19,6 @@
     //毎フレームの処理の順序　オブジェクトツリーのルートから順に、update→コンポーネントundate→postupdate　draw→コンポーネントdraw
 }
 {//やりたいことメモ
-    //ハイスコアのローカルセーブ＆ロード
     //残像の色変更　HSV色空間とグラデーションマップがいる
 }
 'use strict';
@@ -168,12 +167,14 @@ class Player extends Mono {//自機
         this.pos.y = Util.clamp(halfY, this.pos.y, game.height - halfY);
     }
     draw(ctx) {
+        ctx.save();
         const pos = this.pos;
         const x = this.pos.left;
         const y = pos.top;
         ctx.fillStyle = 'yellow';
         ctx.globalAlpha = this.color.alpha;
         ctx.fillRect(x + 31, y + 5, 10, 8);
+        ctx.restore();
     }
     *coroAction() {
         this.coro.start(this.coroShot());
@@ -884,6 +885,7 @@ class ScenePlay extends Mono {//プレイ画面
         this.telop.isExist = false;
         //デバッグ表示
         this.child.add(this.debug = new Watch());
+        this.debug.add(()=>`${this.baddies.child.liveCount}`);
     }
     getRemainsText = () => {
         const remains = shared.playdata.total.remains;
@@ -1272,7 +1274,7 @@ const text = {//テキスト
     title: 'シューティングゲーム', title2: 'のようなもの', presskey: 'Zキーを押してね',
     explanation1: '↑↓←→:選択、移動',
     explanation2: 'Z:決定、攻撃　X:取消、中断',
-    title_copyright: '©2025 HAGURE YOUMA All rights reserved.',
+    title_copyright: '©2026 HAGURE YOUMA All rights reserved.',
     nextStage: 'Bキーで次へ',
     start: 'スタート', highscore: 'ハイスコア', credit: 'クレジット',
     pause: 'ポーズ', resume: 'ゲームを続ける', restart: '最初からやり直す', returntitle: 'タイトルに戻る',

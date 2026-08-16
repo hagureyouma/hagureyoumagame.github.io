@@ -3,44 +3,8 @@
 
 //by はぐれヨウマ
 'use strict';
-class Config {//設定の初期値
-    constructor() {
-        this.screenSize = {
-            width: 360,
-            height: 480,
-        }
-        this.font = {
-            default: { name: 'Kaisei Decol', url: 'https://fonts.googleapis.com/css2?family=kaisei+decol&display=swap', custom: false },
-            emoji: { name: 'FontAwesome', url: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css', custom: true }
-        }
-        this.fontSize = {
-            small: 12,
-            normal: 20,
-            medium: 30,
-            large: 36,
-            big: 40,
-        };
-        this.theme = {
-            bg: '#000000',
-            text: '#ffffff',
-            highlite: 'yellow'
-        }
-        this.input = {
-            repeatWaitFirst: 0.25,
-            repeatWait: 0.125,
-        }
-        this.vpad = {
-            buttonAreaSize: 160,
-            buttonSize: 60,
-        }
-        this.saveData = {
-            name: 'saveData'
-        }
-        this.debug = {
-            drawPosSizeRect: true
-        }
-    }
-};
+
+import Config from './config.json' with {type: 'json'};
 //Font Awsomeの文字コード
 export const EMOJI = Object.freeze({
     GHOST: 'f6e2',
@@ -58,7 +22,7 @@ export const EMOJI = Object.freeze({
 });
 class Game {//エンジン本体
     constructor() {
-        this.cfg = new Config();
+        this.cfg = Config;
         document.body.style.backgroundColor = this.cfg.theme.bg;
         this.asset = new AssetLoader();
         this.screen = new Screen(this.cfg.screenSize.width, this.cfg.screenSize.height);
@@ -423,6 +387,7 @@ class VirtualPad {//仮想パッド
                 position:absolute;
                 width:60px;
                 height:60px;
+                font-size:30px;
                 border-radius:50%;
                 border: 2px solid white;
                 background-color:rgba(255,255,255,0.5);
@@ -859,9 +824,11 @@ export class Pos {//位置と大きさコンポーネント
     }
     draw(ctx) {
         if (!game.cfg.debug.drawPosSizeRect) return;
+        ctx.save();
         ctx.strokeStyle = 'red';
         ctx.globalAlpha = 1;
         ctx.strokeRect(this.left, this.top, this.width, this.height);
+        ctx.restore();
     }
     get width() { return this._width * this.scaleX; }
     get height() { return this._height * this.scaleY; }
@@ -1114,6 +1081,7 @@ export class Collision {//当たり判定コンポーネント
     }
     draw(ctx) {//当たり判定を表示
         if (!this.isVisible) return;
+        ctx.save();
         ctx.fillStyle = '#ff000080';
         if (this.isCircle) {
             const pos = this.owner.pos;
@@ -1124,6 +1092,7 @@ export class Collision {//当たり判定コンポーネント
             const r = this.rect;
             ctx.fillRect(r.x, r.y, r.width, r.height);
         }
+        ctx.restore();
     }
 }
 export class Brush {//描画コンポーネント

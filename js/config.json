@@ -1,0 +1,46 @@
+
+{
+    "screenSize": {
+        "width": 540,
+        "height": 720
+    },
+    "font": {
+        "default": {
+            "name": "Kaisei Decol",
+            "url": "https://fonts.googleapis.com/css2?family=kaisei+decol&display=swap",
+            "custom": false
+        },
+        "emoji": {
+            "name": "FontAwesome",
+            "url": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css",
+            "custom": true
+        }
+    },
+    "fontSize": {
+        "small": 12,
+        "normal": 20,
+        "medium": 30,
+        "large": 40,
+        "big": 50
+    },
+    "theme": {
+        "bg": "#000000",
+        "text": "#ffffff",
+        "highlite": "yellow"
+    },
+    "input": {
+        "repeatWaitFirst": 0.25,
+        "repeatWait": 0.125
+    },
+    "vpad": {
+        "virtical": 110,
+        "buttonAreaSize": 160,
+        "buttonSize": 60
+    },
+    "saveData": {
+        "name": "saveData"
+    },
+    "debug": {
+        "drawPosSizeRect": false
+    }
+}

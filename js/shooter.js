@@ -33,8 +33,11 @@ class Unit {//ユニットコンポーネント
         this.reset();
     }
     reset() {
-        this.hp = 1;
-        this.invincible = this.firing = false;
+        this.status = {
+            hp: 1, hpMax: 1,
+            invincible: false
+        }
+        this.firing = false;
         this.data = this.scene = this.onBanish = this.onDefeat = undefined;
         this.coroSpawn = this.coroSpawnDefault;
         this.coroDefeat = this.coroDefeatDefalut;
@@ -44,20 +47,24 @@ class Unit {//ユニットコンポーネント
         this.reset();
         this.scene = scene;
         if (!data) return;
-        this.data = data;
-        this.hp = data.hp;
+        this.setStatus(data);
         this.owner.addMix(data.isOutOfScreenToRemove ? OutOfScreenToRemove : OutOfRangeToRemove, true);
         this.owner.coro.start(this.coroSpawn(), 'main');
     }
+    setStatus(data) {
+        this.data = data;
+        this.status.hp = this.status.hpMax = data.hp;
+        this.invincible = false;
+    }
     resetHp() {
-        this.hp = this.data.hp;
+        this.status.hp = this.status.hpMax;
     }
     isBanish() {
-        return !this.invincible && this.hp > 0;
+        return !this.status.invincible && this.status.hp > 0;
     }
     banish(damage) {
-        this.hp = Math.max(this.hp - damage, 0);
-        if (this.hp > 0) {
+        this.status.hp = Math.max(this.status.hp - damage, 0);
+        if (this.status.hp > 0) {
             this.owner.color.flash('crimson');
             this.onBanish?.();
             return;
@@ -98,7 +105,7 @@ class Unit {//ユニットコンポーネント
         if (this.data.type === CharacterData.type.bomb) shared.playdata.total.bomb++;
         this.onDefeat?.();
     }
-    get hpRatio() { return this.hp / this.data.hp; };
+    get hpRatio() { return this.status.hp / this.status.hpMax; };
     update() {
         this.action.update();
     }
@@ -159,6 +166,7 @@ class Player extends Mono {//自機
         this.moji.set(Util.parseUnicode(data.char), game.width * 0.5, game.height - (data.size * 0.5), { size: data.size, color: data.color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
         this.collision.set(this.pos.width * 0.25, this.pos.height * 0.25);
         this.unit.coroDefeat = this.coroDefeat.bind(this);
+        this.unit.status.invincible = true;
     }
     postUpdate() {
         const halfX = this.pos.width * 0.5;
@@ -226,12 +234,12 @@ class Player extends Mono {//自機
         }
     }
     *coroDamagedInvincible() {
-        this.unit.invincible = true;
+        this.unit.status.invincible = true;
         yield undefined;
         this.color.blink(0.03);
         yield* waitForTime(datas.player.damagedInvincibilityTime);
         this.color.restore();
-        this.unit.invincible = false;
+        this.unit.status.invincible = false;
     }
     *coroDefeat() {
         this.unit.playDefeatEffect();
@@ -250,7 +258,6 @@ class Spawner {//敵キャラ出現
         inverttri: 'inverttri',
         trail: 'trail',
         abrest: 'abrest',
-        topsingle: 'topsingle',
         left: 'left',
         right: 'right',
         randomtop: 'randomtop',
@@ -492,8 +499,13 @@ class Baddie extends Mono {//敵キャラ
         zako3: function* (user, pattern, bullets, scene) {
             const moveSpeed = 50;
             yield* user.routineBasic(user, pattern, moveSpeed, function* () {
-                bullets.mulitWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
-                yield* waitForTime(2);
+                const r = Util.rand(100);
+                if (r > 50) {
+                    bullets.mulitWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'aqua', aim: scene.player });
+                } else {
+                    bullets.mulitWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
+                }
+                yield* waitForTime(3);
             });
         },
         zako4: function* (user, pattern, bullets, scene) {
@@ -564,7 +576,7 @@ class Baddie extends Mono {//敵キャラ
             const circleShot = function* () {
                 const count = 24;
                 for (let i = 0; i < 6; i++) {
-                    bullets.circle(user.pos.x, user.pos.y, { count: count, offset: ((360 / count) * 0.5) * (i % 2) });
+                    bullets.circle(user.pos.x, user.pos.y, { count: count, color: 'red', offset: ((360 / count) * 0.5) * (i % 2) });
                     yield* waitForTime(0.5);
                 }
             };
@@ -642,7 +654,7 @@ class Baddie extends Mono {//敵キャラ
             yield* resetPos();
             let shotList = [fanShot, ringShot, guidedShot];
             let currentShot = 0;
-            while (user.unit.hpRatio > 0.5) {
+            while (user.unit.hpRatio > 0.6) {
                 if (currentShot === 0) yield* summonMinions(minionName, 7, user.pos.width * 0.75);
                 yield* user.coro.startAndGetWaitForFrag(shotList[currentShot]());
                 if (!(user.unit.hpRatio > 0.5)) break;
@@ -656,7 +668,7 @@ class Baddie extends Mono {//敵キャラ
             yield* resetPos();
             shotList = [fanShotParallel, circleShot, spiralShot, ringShot];
             currentShot = 0;
-            while (user.unit.hpRatio > 0.25) {
+            while (user.unit.hpRatio > 0.3) {
                 if (currentShot === 0) yield* summonMinions(minionName, 9, user.pos.width * 0.75);
                 yield* user.coro.startAndGetWaitForFrag(shotList[currentShot]());
                 if (!(user.unit.hpRatio > 0.25)) break;
@@ -685,7 +697,7 @@ class Baddie extends Mono {//敵キャラ
             while (true) {
                 const r = Util.rand(100);
                 if (r > 70) {
-                    bullets.mulitWay(user.pos.linkX, user.pos.linkX, { count: 1, color: 'aqua', aim: scene.player });
+                    bullets.mulitWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'aqua', aim: scene.player });
                 } else {
                     bullets.mulitWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
                 }
@@ -848,6 +860,7 @@ class ScenePlay extends Mono {//プレイ画面
         super(Coro, Child);
         this.isClear = false;
         this.extendedScore = 0;
+        this.bossMode=false;        
         this.spawner = new Spawner();
         //自機
         this.child.add(this.playerside = new Mono(Child));
@@ -884,8 +897,12 @@ class ScenePlay extends Mono {//プレイ画面
         this.ui.child.add(this.telop = new Label('', game.width * 0.5, game.height * 0.5, { size: game.cfg.fontSize.medium, color: game.cfg.theme.highlite, align: 1, valign: 1 }));
         this.telop.isExist = false;
         //デバッグ表示
-        this.child.add(this.debug = new Watch());
-        this.debug.add(()=>`${this.baddies.child.liveCount}`);
+        this.ui.child.add(this.debug = new Watch());
+        this.debug.pos.y = game.cfg.fontSize.normal * 1.25 * 2;
+        this.debug.add(() => `敵の数:${this.baddies.child.liveCount}`);
+        this.debug.add(() => `自機の弾の数${this.playerbullets.child.liveCount}`);
+        this.debug.add(() => `敵の弾の数${this.baddiesbullets.child.liveCount}`);
+        this.debug.add(() => `パーティクルの数${this.effect.child.liveCount}`);
     }
     getRemainsText = () => {
         const remains = shared.playdata.total.remains;
@@ -958,7 +975,7 @@ class ScenePlay extends Mono {//プレイ画面
         while (true) {
             yield undefined;
             if (this.isClear) {//ステージクリアした
-                this.player.unit.invincible = true;//クリア後に撃破されないよう無敵にする
+                this.player.unit.status.invincible = true;//クリア後に撃破されないよう無敵にする
                 yield* this.showTelop(text.stageclear, 2);
                 yield* new SceneClear(shared.getCurrentStat()).coroDefault();
                 this.nextStage();
@@ -999,59 +1016,67 @@ class ScenePlay extends Mono {//プレイ画面
         }
     }
     * coroStage() {
+        if (!this.bossMode) yield* this._phaseInvasion();
+        yield* this._phaseBoss();
+        this.isClear = true;
+    }
+    *_phaseInvasion() {//道中
         const items = ['bomb'];
-        const itemSpawnRate = 0.05;
+        const itemSpawnRate = 0.10;
         let itemSpawnCounter = 0;
         const appears = ['crow', 'dove', 'obake', 'bigcrow'];
-        const bossName = 'greatcrow';
         const phaseSec = 30;
-        const spawnIntervalFactor = 1 * Math.pow(0.9, shared.playdata.total.stage);
+        const baddiesMax = 50;
+        //ステージ数に応じて敵の出現する間隔が短くなる
+        const spawnIntervalFactor = 0.95 ** shared.playdata.total.stage;
         yield* waitForTime(2);
-        {//道中
-            while (this.elaps <= phaseSec || this.baddies.child.liveCount > 0) {
-                yield undefined;
-                //敵キャラ出現
-                if (this.elaps > phaseSec) continue;
-                const baddieName = appears[Util.rand(appears.length - 1)];
-                const data = datas.baddies[baddieName];
-                const formation = data.forms[Util.rand(data.forms.length - 1)];
-                const spawnMax = Math.floor(game.width / data.size) - 2;
-                const spawnCount = Util.rand(spawnMax);
-                this.spawner.formation(this.baddies, Baddie.name, formation, -1, -1, spawnCount, -1, data, 0, this.baddiesbullets, this, undefined, false);
-                yield* waitForTime(Util.rand(spawnCount * spawnIntervalFactor * 0.5, spawnIntervalFactor))
-                //アイテム出現    
-                if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {
-                    itemSpawnCounter = 0;
-                    const itemName = items[Util.rand(items.length - 1)];
-                    const data = datas.items[itemName];
-                    const formation = Spawner.form.topsingle;
-                    this.spawner.formation(this.items, Baddie.name, formation, -1, -1, 1, -1, data, 0, undefined, this, undefined, false);
-                }
-                itemSpawnCounter++;
+        while (this.elaps <= phaseSec || this.baddies.child.liveCount > 0) {
+            yield undefined;
+            //敵キャラ出現
+            if (this.elaps > phaseSec || this.baddies.child.liveCount > baddiesMax) continue;
+            const baddieName = appears[Util.rand(appears.length - 1)];
+            const data = datas.baddies[baddieName];
+            const formation = data.forms[Util.rand(data.forms.length - 1)];
+            const spawnMax = Math.floor(game.width / data.size) - 2;
+            const spawnCount = Util.rand(spawnMax);
+            this.spawner.formation(this.baddies, Baddie.name, formation, -1, -1, spawnCount, -1, data, 0, this.baddiesbullets, this, undefined, false);
+            yield* waitForTime(Util.rand(spawnCount * spawnIntervalFactor * 0.5, spawnIntervalFactor))
+            //アイテム出現    
+            if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {
+                itemSpawnCounter = 0;
+                const itemName = items[Util.rand(items.length - 1)];
+                const data = datas.items[itemName];
+                const formation = Spawner.form.topsingle;
+                this.spawner.formation(this.items, Baddie.name, formation, -1, -1, 1, -1, data, 0, undefined, this, undefined, false);
             }
+            itemSpawnCounter++;
         }
         yield* this.showTelop('WARNING!', 2, 0.25);
-        {//ステージボス登場
-            const data = datas.baddies[bossName];
-            const formation = data.forms[0];
-            const [boss] = this.spawner.formation(this.baddies, Baddie.name, formation, game.width * 0.5, -1, 1, -1, data, 0, this.baddiesbullets, this, 0, undefined);
-            const waitForBossDefeat = wait();
-            boss.unit.onDefeat = () => {
-                waitForBossDefeat.return();
-            }
-            //ボスのHPゲージ
-            const bossHpGauge = new Gauge();
-            bossHpGauge.pos.set(game.width * 0.5, 56, game.width * 0.9, 10);
-            bossHpGauge.pos.align = 1;
-            bossHpGauge.color = game.cfg.theme.text;
-            bossHpGauge.max = boss.unit.data.hp;
-            bossHpGauge.watch = () => boss.unit.hp;
-            this.charaUi.child.add(bossHpGauge);
-            //ボスが倒されるまで待機
-            yield* waitForBossDefeat;
-            bossHpGauge.remove();
+    }
+    *_phaseBoss() {//ステージボス登場
+        const bossName = 'greatcrow';
+        const data = datas.baddies[bossName];
+        const formation = data.forms[0];
+        const [boss] = this.spawner.formation(this.baddies, Baddie.name, formation, game.width * 0.5, -1, 1, -1, data, 0, this.baddiesbullets, this, 0, undefined);
+        //ボスのHPをステージ数に応じて増やす
+        const collencetHP = Math.floor(boss.unit.status.hpMax * (1 + (shared.playdata.total.stage - 1) / 10));
+        boss.unit.status.hp = boss.unit.status.hpMax = collencetHP;
+
+        const waitForBossDefeat = wait();
+        boss.unit.onDefeat = () => {
+            waitForBossDefeat.return();
         }
-        this.isClear = true;
+        //ボスのHPゲージ
+        const bossHpGauge = new Gauge();
+        bossHpGauge.pos.set(game.width * 0.5, 56, game.width * 0.9, 10);
+        bossHpGauge.pos.align = 1;
+        bossHpGauge.color = game.cfg.theme.text;
+        bossHpGauge.max = boss.unit.status.hp;
+        bossHpGauge.watch = () => boss.unit.status.hp;
+        this.charaUi.child.add(bossHpGauge);
+        //ボスが倒されるまで待機
+        yield* waitForBossDefeat;
+        bossHpGauge.remove();
     }
     newGame() {
         shared.playdata.backup = new scoreData();
@@ -1347,7 +1372,7 @@ const datas = {//ゲームデータ
         crow: new CharacterData(CharacterData.type.baddie, 'crow', EMOJI.CROW, '#0B1730', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako1', forms: [Spawner.form.v, Spawner.form.delta, Spawner.form.tri, Spawner.form.inverttri, Spawner.form.trail, Spawner.form.abrest, Spawner.form.randomtop] }),
         dove: new CharacterData(CharacterData.type.baddie, 'dove', EMOJI.DOVE, '#CBD8E1', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako2', forms: [Spawner.form.left, Spawner.form.right, Spawner.form.randomside] }),
         bigcrow: new CharacterData(CharacterData.type.baddie, 'bigcrow', EMOJI.CROW, 'navy', 80, 20, 100, { defeatEffect: 'feather', routine: 'zako3', forms: [Spawner.form.topsingle] }),
-        greatcrow: new CharacterData(CharacterData.type.baddie, 'greatcrow', EMOJI.CROW, '#0E252F', 120, 100, 2000, { defeatEffect: 'feather', routine: 'boss1', forms: [Spawner.form.topsingle] }),
+        greatcrow: new CharacterData(CharacterData.type.baddie, 'greatcrow', EMOJI.CROW, '#0E252F', 120, 400, 5000, { defeatEffect: 'feather', routine: 'boss1', forms: [Spawner.form.topsingle] }),
         torimakicrow: new CharacterData(CharacterData.type.baddie, 'torimakicrow', EMOJI.CROW, '#0B1730', 40, 10, 200, { defeatEffect: 'feather', routine: 'boss1torimaki', forms: [Spawner.form.within] }),
     },
     player: {

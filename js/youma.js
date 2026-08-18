@@ -334,13 +334,14 @@ class VirtualPad {//仮想パッド
                     <div id="stick"></div>
                 </div>
                 <div id="buttons">
-                    <button data-button="0">A</button>
-                    <button data-button="1">B</button>
+                    <button data-button="0">B</button>
+                    <button data-button="1">A</button>
                     <button data-button="2">X</button>
                     <button data-button="3">Y</button>
                 </div>
             </div>
         `);
+        const virtical = vpadCfg.virtical;
         const buttonAreaSize = vpadCfg.buttonAreaSize;
         const buttonSize = vpadCfg.buttonSize;
         document.head.insertAdjacentHTML('beforeend', `<style id="vpad-style">
@@ -356,7 +357,7 @@ class VirtualPad {//仮想パッド
             #stick_area {
                 position:absolute;
                 left:30px;
-                bottom:30px;
+                bottom:${virtical - 50}px;
                 width:100px;
                 height:100px;
                 border-radius:50%;
@@ -377,7 +378,7 @@ class VirtualPad {//仮想パッド
             #buttons {
                 position:absolute;
                 right:30px;
-                bottom:30px;
+                bottom:${virtical - buttonAreaSize / 2}px;
                 width:${buttonAreaSize}px;
                 height:${buttonAreaSize}px;
                 pointer-events:auto;
@@ -436,7 +437,6 @@ class VirtualPad {//仮想パッド
             this.stickPointerId = e.pointerId;
             this.stickArea.setPointerCapture(this.stickPointerId);
             this._updateStick(e);
-            console.log(e);
         });
         this.stickArea.addEventListener('pointermove', (e) => {
             if (this.stickPointerId !== e.pointerId) return;
@@ -478,7 +478,7 @@ class VirtualPad {//仮想パッド
         this.axes[0] = x / radius;
         this.axes[1] = y / radius;
         this.stick.style.transform = `translate(calc(-50% + ${x}px),calc(-50% + ${y}px))`;
-        console.log(`Stick position: x=${this.axes[0].toFixed(2)}, y=${this.axes[1].toFixed(2)}`);
+        //console.log(`Stick position: x=${this.axes[0].toFixed(2)}, y=${this.axes[1].toFixed(2)}`);
     }
     _resetStick() {
         this.stickPointerId = null;

@@ -17,11 +17,11 @@
         }
     },
     "fontSize": {
-        "small": 12,
-        "normal": 20,
-        "medium": 30,
-        "large": 40,
-        "big": 50
+        "small": 20,
+        "normal": 30,
+        "medium": 40,
+        "large": 50,
+        "big": 60
     },
     "theme": {
         "bg": "#000000",

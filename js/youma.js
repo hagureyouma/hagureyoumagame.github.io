@@ -133,7 +133,7 @@ class Screen {//画面
     constructor(width, height) {
         this.rect = new Rect(0, 0, width, height);
         this.rangeRect = new Rect(0, 0, width, height);
-        this.setRange(width * 0.25);
+        this.setRange(width);
         this.viewWidth = this.viewHeight = 0;
         this.resizeCallback = [];
         window.addEventListener('resize', () => this.resize());
@@ -164,9 +164,9 @@ class Screen {//画面
     get range() { return Math.abs(this.rangeRect.x); };
     setRange(range) { this.rangeRect.set(-range, -range, this.width + range + range, this.height + range + range); }
     isOut(rect) { return !this.rect.isIntersect(rect); }
-    isWithin(rect) { return !this.rect.isOverflow(rect); }
+    isOverflow(rect) { return this.rect.isOverflow(rect); }
     isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
-    isWithinRange(rect) { return !this.rangeRect.isOverflow(rect); }
+    isOverflowRange(rect) { return this.rangeRect.isOverflow(rect); }
 }
 class Layers {//レイヤーのコンテナ
     constructor(screen) {
@@ -319,9 +319,9 @@ class Input {//入力
     keybind(name, key, { button = -1, axes = -1 } = {}) {
         this.keys.set(name, { buffer: false, before: false, current: false, key: key, button: button, axes: axes });
     }
-    isDown = (name) => this.keys.get(name).current;
-    isPress = (name) => this.keys.get(name).current && !this.keys.get(name).before;
-    isUp = (name) => !this.keys.get(name).current && this.keys.get(name).before;
+    isDown(name) { return this.keys.get(name).current; }
+    isPress(name) { return this.keys.get(name).current && !this.keys.get(name).before; }
+    isUp(name) { return !this.keys.get(name).current && this.keys.get(name).before; }
 }
 class VirtualPad {//仮想パッド
     constructor(screen, vpadCfg) {
@@ -488,7 +488,7 @@ class VirtualPad {//仮想パッド
     }
 }
 export class Util {//小物
-    static naname = 0.71;
+    static naname = 0.707106;
     static radian = Math.PI / 180;
     static degree = 180 / Math.PI;
     static uniqueId = () => Date.now().toString(16) + Math.floor(1000 * Math.random()).toString(16);
@@ -507,9 +507,9 @@ export class Util {//小物
         const rad = deg * Util.radian;
         return [Math.cos(rad) * x - Math.sin(rad) * y, Math.sin(rad) * x + Math.cos(rad) * y];
     }
-    static distanse = (x, y) => Math.sqrt(x * x + y * y);
+    static distance = (x, y) => Math.sqrt(x * x + y * y);
     static normalize(x, y) {
-        const d = Util.distanse(x, y);
+        const d = Util.distance(x, y);
         return [x / d, y / d];
     }
     static xRotaRad = (x, y, rad) => Math.cos(rad) * x - Math.sin(rad) * y;
@@ -518,19 +518,41 @@ export class Util {//小物
     static dot = (x, y, x2, y2) => x * x2 + y * y2;
     static cross = (x, y, x2, y2) => x * y2 - y * x2;
     static lerp = (start, end, t) => (1 - t) * start + t * end;
+    static isHitRect(x, y, w, h, x2, y2, w2, h2) {
+        return !(
+            x + w < x2 ||
+            x > x2 + w2 ||
+            y + h < y2 ||
+            y > y2 + h2
+        );
+    }
+    static isHitCircle(x, y, r, x2, y2, r2) {
+        const dx = x - x2;
+        const dy = y - y2;
+        const ds = dx * dx + dy * dy;
+        const rs = r + r2;
+        return ds <= rs * rs;
+    }
+    static isHitCircleRect(cx, cy, r, rx, ry, w, h) {
+        const nearestX = Util.clamp(cx, rx, rx + w);
+        const nearestY = Util.clamp(cy, ry, ry + h);
+        const dx = cx - nearestX;
+        const dy = cy - nearestY;
+        return dx * dx + dy * dy <= r ** 2;
+    }
     static rand = (max, min = 0) => Math.floor(Math.random() * (max + 1 - min) + min);
     static average = (arr) => arr.reduce((prev, current, i, arr) => prev + current) / arr.length;
-    static serialArray = (length) => [...Array(length).keys()];
-    static shiffle(arr) {
+    static rangeArray = (length) => [...Array(length).keys()];
+    static shuffle(arr) {
         for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
         return arr;
     }
-    static shiffledArray = (length) => Util.shiffle(Util.serialArray(length));
-    static randomTake = (arr, num) => Util.shiffle([...arr]).slice(0, num);
-    static randomArray = (range, length) => Util.shiffledArray(range).slice(0, length);
+    static shuffledArray = (length) => Util.shuffle(Util.rangeArray(length));
+    static randomTake = (arr, num) => Util.shuffle([...arr]).slice(0, num);
+    static randomArray = (range, length) => Util.shuffledArray(range).slice(0, length);
     static isGenerator = (obj) => obj && typeof obj.next === 'function' && typeof obj.throw === 'function';
     static isIterable = (obj) => obj && typeof obj[Symbol.iterator] === 'function';
     static isImageFile = (file) => /\.(jpg|jpeg|png|gif)$/i.test(file);
@@ -540,7 +562,7 @@ export class Util {//小物
     static isTouch() { return navigator.maxTouchPoints > 0; }
     static isPortrait() { return window.innerHeight > window.innerWidth; }
 }
-class Rect {//矩形
+export class Rect {//矩形
     constructor(x = 0, y = 0, width = 0, height = 0) {
         this.set(x, y, width, height);
     }
@@ -666,7 +688,7 @@ export function* waitForTime(time) {//指定した時間まで待機
 }
 export function* waitForTimeOrFrag(time, func) {//指定した時間が経つか関数の戻り値がtrueになるまで待機
     time -= game.delta;
-    while (time > 0 && !func()) {
+    while (time > 0 && !func?.()) {
         time -= game.delta;
         yield undefined;
     }
@@ -875,7 +897,7 @@ export class Move {//移動コンポーネント
         const { easing = Ease.liner, isLoop = false, isfirstRand = false, min = 0 } = options;
         this.vx = x;
         this.vy = y;
-        const distance = Util.distanse(x, y);
+        const distance = Util.distance(x, y);
         if (isTimeBased) {
             return this.ease.set(speedOrTime, easing, isLoop, isfirstRand, min);
         } else {
@@ -931,8 +953,7 @@ export class Move {//移動コンポーネント
 }
 export class Scale {//拡大縮小コンポーネント
     static requieds = Pos;
-    constructor(owner) {
-        this.owner = owner;
+    constructor() {
         this.ease = new Ease();
         this.reset();
     }
@@ -1057,19 +1078,22 @@ export class Collision {//当たり判定コンポーネント
         const pos = this.owner.pos;
         return this._rect.set(Math.floor(pos.linkX - pos.align * this._rect.width * 0.5), Math.floor(pos.linkY - pos.valign * this._rect.height * 0.5), this._rect.width, this._rect.height);
     }
-    hit(obj) { //速度が矩形より大きいとすり抜けるよ        
+    hit(obj) { //速度が矩形より大きいとすり抜けるよ
         if (!this.isEnable) return false;
         let result = false;
-        if (this.isCircle) {
-            const tPos = this.owner.pos;
-            const oPos = obj.pos;
-            const dx = tPos.linkX - oPos.linkX;
-            const dy = tPos.linkY - oPos.linkY;
-            const ds = dx * dx + dy * dy;
-            const rs = tPos.width * 0.5 + oPos.width * 0.5;
-            result = ds <= rs * rs;
+        const other = obj.collision;
+        const tPos = this.owner.pos;
+        const oPos = obj.pos;
+        if (this.isCircle && other.isCircle) {
+            result = Util.isHitCircle(tPos.linkX, tPos.linkY, tPos.width * 0.5, oPos.linkX, oPos.linkY, oPos.width * 0.5);
+        } else if (this.isCircle && !other.isCircle) {
+            const rect = other.rect;
+            result = Util.isHitCircleRect(tPos.linkX, tPos.linkY, tPos.width * 0.5, rect.x, rect.y, rect.width, rect.height);
+        } else if (!this.isCircle && other.isCircle) {
+            const rect = this.rect;
+            result = Util.isHitCircleRect(oPos.linkX, oPos.linkY, oPos.width * 0.5, rect.x, rect.y, rect.width, rect.height);
         } else {
-            result = this.rect.isIntersect(obj.collision.rect);
+            result = this.rect.isIntersect(other.rect);
         }
         if (result) {
             if (this.hitList.has(obj)) return false;
@@ -1305,24 +1329,6 @@ export class Watch extends Mono {//変数の値を表示
 }
 export const game = new Game();//ゲームのインスタンス
 //以下はgameに依存
-export class OutOfScreenToRemove {//画面外に出ると削除コンポーネント
-    constructor() {
-        return this;
-    }
-    update() {
-        if (game.screen.isOut(this.owner.pos.rect)) this.owner.remove();
-    }
-}
-export class OutOfRangeToRemove {//範囲外に出ると削除コンポーネント
-    constructor() {
-        return this;
-    }
-    update() {
-        if (game.screen.isOutOfRange(this.owner.pos.rect)) {
-            this.owner.remove();
-        }
-    }
-}
 export class Menu extends Mono {//メニュー表示
     constructor(x, y, size, options = {}) {
         super(Pos, Child);

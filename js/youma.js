@@ -19,6 +19,7 @@ export const EMOJI = Object.freeze({
     STAR: 'f005',
     HEART: 'f004',
     BOMB: 'f1e2',
+    CLOUD: 'f0c2',
 });
 class Game {//エンジン本体
     constructor() {
@@ -228,32 +229,59 @@ class Layer {//レイヤー
         canvas.height = height;
         canvas.style.cssText += 'position: absolute; top: 0; left: 0; width: 100%; height: 100%;';
         this.isUpdate = true;
-        this.blur;
+        this.blur = undefined;
         this.isPauseBlur = false;
+        this.bloom = undefined;
     }
     getContext() { return this.canvas.getContext('2d'); }
     getBlurContext() { return this.blur.getContext('2d'); }
+    getBloomContext() { return this.bloom.getContext('2d'); }
     clear() { return this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
     clearBlur() { return this.getBlurContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
+    clearBloom() { return this.getBloomContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
     enableBlur() {
         if (this.blur) return;
         const blur = this.blur = document.createElement('canvas');
         blur.width = this.canvas.width;
         blur.height = this.canvas.height;
     }
+    enableBloom() {
+        if (this.bloom) return;
+        const bloom = this.bloom = document.createElement('canvas');
+        bloom.width = this.canvas.width;
+        bloom.height = this.canvas.height;
+    }
     before() {
         if (!this.isUpdate) return;
         const ctx = this.getContext();
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        if (!this.blur) return;
-        ctx.drawImage(this.blur, 0, 0);
+        if (this.blur) {
+            ctx.drawImage(this.blur, 0, 0);
+        }
     }
     after() {
-        if (!this.isUpdate || !this.blur || this.isPauseBlur) return;
-        const ctx = this.getBlurContext();
-        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        ctx.globalAlpha = 0.7;
-        ctx.drawImage(this.canvas, 0, 0);
+        if (!this.isUpdate) return;
+        if (this.blur && !this.isPauseBlur) {
+            const blurCtx = this.getBlurContext();
+            blurCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            blurCtx.globalAlpha = 0.7;
+            blurCtx.drawImage(this.canvas, 0, 0);
+        }
+        if (this.bloom) {
+            const bloomCtx = this.getBloomContext();
+            bloomCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            bloomCtx.drawImage(this.canvas, 0, 0);
+            bloomCtx.filter = "blur(20px)";
+            const ctx = this.getContext();
+            ctx.save();
+            ctx.globalCompositeOperation = "lighter";
+            ctx.globalAlpha = 1;
+            ctx.drawImage(this.bloom, 0, 0);
+            ctx.drawImage(this.bloom, 0, 0);
+            ctx.drawImage(this.bloom, 0, 0);
+            ctx.restore();
+        }
+
     }
 }
 class Input {//入力
@@ -508,7 +536,7 @@ export class Util {//小物
         return [Math.cos(rad) * x - Math.sin(rad) * y, Math.sin(rad) * x + Math.cos(rad) * y];
     }
     static distance = (x, y) => Math.sqrt(x * x + y * y);
-    static normalize(x, y) {
+    static normalizeXY(x, y) {
         const d = Util.distance(x, y);
         return [x / d, y / d];
     }
@@ -517,7 +545,8 @@ export class Util {//小物
     static spdToDeg = (speed, radius) => (speed * 180) / (Math.PI * radius);
     static dot = (x, y, x2, y2) => x * x2 + y * y2;
     static cross = (x, y, x2, y2) => x * y2 - y * x2;
-    static lerp = (start, end, t) => (1 - t) * start + t * end;
+    static normalize(max, min, n) { return (n - min) / (max - min); }
+    static lerp(max, min, t) { return min + t * (max - min); }
     static isHitRect(x, y, w, h, x2, y2, w2, h2) {
         return !(
             x + w < x2 ||
@@ -540,7 +569,8 @@ export class Util {//小物
         const dy = cy - nearestY;
         return dx * dx + dy * dy <= r ** 2;
     }
-    static rand = (max, min = 0) => Math.floor(Math.random() * (max + 1 - min) + min);
+    static rand = (max = 1, min = 0) => Math.floor(Math.random() * (max + 1 - min) + min);
+    static randF = (max = 1, min = 0) => Math.random() * (max - min) + min;
     static average = (arr) => arr.reduce((prev, current, i, arr) => prev + current) / arr.length;
     static rangeArray = (length) => [...Array(length).keys()];
     static shuffle(arr) {
@@ -590,7 +620,7 @@ export class Mono {//ゲームオブジェクト
     addMix(mixCtor, isFirst) {
         const mixCtors = Util.isIterable(mixCtor) ? mixCtor : [mixCtor];
         for (const ctor of mixCtors) {
-            const requiedMixCtors = Util.isIterable(ctor?.requieds) ? ctor.requieds : [ctor?.requieds].filter(Boolean);
+            const requiedMixCtors = Util.isIterable(ctor?.requires) ? ctor.requires : [ctor?.requires].filter(Boolean);
             for (const requiedMixCtor of requiedMixCtors) {
                 this._addMix(requiedMixCtor);
             }
@@ -609,8 +639,9 @@ export class Mono {//ゲームオブジェクト
             this.mixs.push(mix);
         }
     }
-    resetMix() {
+    baseReset() {
         for (const mix of this.mixs) mix.reset?.();
+        this.reset();
     }
     baseUpdate() {
         if (!this.isExist || !this.isActive) return;
@@ -618,13 +649,14 @@ export class Mono {//ゲームオブジェクト
         for (const mix of this.mixs) mix.update?.();
         this.postUpdate();
     }
-    update() { }
-    postUpdate() { }
     baseDraw(ctx) {
         if (!this.isExist) return;
         this.draw(ctx);
         for (const mix of this.mixs) mix.draw?.(ctx);
     }
+    reset() { }
+    update() { }
+    postUpdate() { }
     draw() { };
 }
 export class Coro {//コルーチンのコンポーネント
@@ -704,13 +736,16 @@ export class Child {//子持ちコンポーネント
         Child.grave.clear();
     }
     constructor() {
+        this.reset();
+    }
+    reset() {
+        if ('objs' in this) this.removeAll();
         this.creator = {};
         this.objs = [];
         this.reserves = {};
         this.liveCount = 0;
         this.drawlayer = '';
     }
-    reset() { }
     addCreator(name, func) {
         this.creator[name] = func;
     }
@@ -732,7 +767,7 @@ export class Child {//子持ちコンポーネント
         obj.remove = () => {
             if (!obj.isExist) return;
             obj.isExist = false;
-            obj.resetMix();
+            obj.baseReset();
             this.reserves[name].push(obj.childIndex);
             this.liveCount--;
         };
@@ -869,7 +904,7 @@ export class Pos {//位置と大きさコンポーネント
     get rect() { return this._rect.set(this.left, this.top, this.width, this.height); }
 }
 export class Move {//移動コンポーネント
-    static requieds = Pos;
+    static requires = Pos;
     constructor() {
         this.ease = new Ease();
         this.reset();
@@ -890,18 +925,18 @@ export class Move {//移動コンポーネント
             this.ease.isDelta = true;
             return;
         }
-        this.ease.set(speedChangeTime, easing, false, false, minSpeedVias);
+        this.ease.set(speedChangeTime, easing, { min: minSpeedVias });
         this.ease.endToDelta = true;
     }
     _setRelativeParams(x, y, speedOrTime, isTimeBased, options) {
-        const { easing = Ease.liner, isLoop = false, isfirstRand = false, min = 0 } = options;
+        const { easing = Ease.linear, isLoop = false, isfirstRand = false, min = 0 } = options;
         this.vx = x;
         this.vy = y;
         const distance = Util.distance(x, y);
         if (isTimeBased) {
-            return this.ease.set(speedOrTime, easing, isLoop, isfirstRand, min);
+            return this.ease.set(speedOrTime, easing, { isLoop, isfirstRand, min });
         } else {
-            return this.ease.set(distance / speedOrTime, easing, isLoop, isfirstRand, min);
+            return this.ease.set(distance / speedOrTime, easing, { isLoop, isfirstRand, min });
         }
     }
     relative(x, y, speed, options = {}) {
@@ -952,7 +987,7 @@ export class Move {//移動コンポーネント
     get percentage() { return this.ease.percentage; }
 }
 export class Scale {//拡大縮小コンポーネント
-    static requieds = Pos;
+    static requires = Pos;
     constructor() {
         this.ease = new Ease();
         this.reset();
@@ -960,8 +995,9 @@ export class Scale {//拡大縮小コンポーネント
     reset() {
         this.x = 1;
         this.y = 1;
+        this.ease.reset();
     }
-    set(x, y, time = 0, ease = Ease.liner) {
+    set(x, y, time = 0, ease = Ease.linear) {
         this.x = x;
         this.y = y;
         if (time <= 0) {
@@ -970,7 +1006,7 @@ export class Scale {//拡大縮小コンポーネント
             pos.scaleY = y;
             return;
         }
-        return this.ease.set(time, ease, false, false, 0);
+        return this.ease.set(time, ease);
     }
     update() {
         if (!this.ease.isActive) return;
@@ -979,10 +1015,10 @@ export class Scale {//拡大縮小コンポーネント
         if (this.ease.isActive) {
             pos.scaleX += this.x * delta;
             pos.scaleY += this.y * delta;
-        } else {
-            pos.scaleX = this.x;
-            pos.scaleY = this.y;
+            return;
         }
+        pos.scaleX = this.x;
+        pos.scaleY = this.y;
     }
 }
 export class Anime extends Move {//アニメコンポーネント
@@ -991,7 +1027,7 @@ export class Anime extends Move {//アニメコンポーネント
     }
 }
 export class Ease {//イージング
-    static liner = (t) => t;
+    static linear = (t) => t;
     static sinein = (t) => 1 - Math.cos(t * Math.PI / 2);
     static sineout = (t) => Math.sin(t * Math.PI / 2);
     static sineInOut = (t) => -(Math.cos(t * Math.PI) - 1) / 2;
@@ -999,13 +1035,13 @@ export class Ease {//イージング
         this.reset();
     }
     reset() {
-        this.set(0, undefined, false, 0);
+        this.set(0);
     }
-    set(time, ease, isLoop, isfirstRand, min) {
+    set(time, ease = Ease.linear, { isLoop = false, isfirstRand = false, min = 0 } = {}) {
         this.isDelta = false;//イージングせず素通り
         this.endToDelta = false;//イージングが終わると素通りになる
         this.time = time;
-        this.ease = ease || Ease.liner;
+        this.ease = ease;
         this.isLoop = isLoop;
         this.range = 1 - min;//イージングの範囲（0～1）
         this.ofs = min;
@@ -1034,7 +1070,7 @@ export class Ease {//イージング
     get percentage() { return this.elaps % 1; }
 }
 export class Guided {//追尾移動コンポーネント
-    static requieds = [Pos, Move];
+    static requires = Move;
     constructor() {
         this.reset();
     }
@@ -1058,7 +1094,7 @@ export class Guided {//追尾移動コンポーネント
     }
 }
 export class Collision {//当たり判定コンポーネント
-    static requieds = Pos;
+    static requires = Pos;
     constructor() {
         this._rect = new Rect();
         this.hitList = new Set();
@@ -1069,6 +1105,7 @@ export class Collision {//当たり判定コンポーネント
         this.isEnable = true;
         this.isVisible = false;
         this.isCircle = false;
+        this._rect.set(0, 0, 0, 0);
         this.hitList.clear();
     }
     set(width, height) {
@@ -1078,8 +1115,8 @@ export class Collision {//当たり判定コンポーネント
         const pos = this.owner.pos;
         return this._rect.set(Math.floor(pos.linkX - pos.align * this._rect.width * 0.5), Math.floor(pos.linkY - pos.valign * this._rect.height * 0.5), this._rect.width, this._rect.height);
     }
-    hit(obj) { //速度が矩形より大きいとすり抜けるよ
-        if (!this.isEnable) return false;
+    hit(obj) { //速度が矩形または円より大きいとすり抜けるよ
+        if (!obj.collision.isEnable) return false;
         let result = false;
         const other = obj.collision;
         const tPos = this.owner.pos;
@@ -1120,7 +1157,7 @@ export class Collision {//当たり判定コンポーネント
     }
 }
 export class Brush {//描画コンポーネント
-    static requieds = [Pos, Color];
+    static requires = [Pos, Color];
     static rad = Math.PI * 2;
     static drawerRect(ctx, pos) {
         ctx.fillRect(pos.left, pos.top, pos.width, pos.height);
@@ -1157,7 +1194,7 @@ export class Tofu extends Mono {//四角型描画
     }
 }
 export class Moji {//文字コンポーネント
-    static requieds = [Pos, Color];
+    static requires = [Pos, Color];
     static sizeCache = new Map();
     constructor() {
         this.reset();
@@ -1257,6 +1294,9 @@ export class Particle extends Mono {//パーティクル
             return t;
         });
     }
+    emitt(distance, time, size, color, x, y, { emoji, angle, isRandomAngle, rotate } = {}) {
+
+    }
     emittCircle(count, distance, time, size, color, x, y, isConverge = false, options = {}) {
         const { emoji: emoji = undefined, angle = 0, isRandomAngle = false, rotate = 0 } = options;
         const deg = 360 / count;
@@ -1330,14 +1370,14 @@ export class Watch extends Mono {//変数の値を表示
 export const game = new Game();//ゲームのインスタンス
 //以下はgameに依存
 export class Menu extends Mono {//メニュー表示
-    constructor(x, y, size, options = {}) {
+    constructor(x, y, size, { icon = EMOJI.CAT, align = 1, color = game.cfg.theme.text, highlite = game.cfg.theme.highlite, isEnableCancel = false } = {}) {
         super(Pos, Child);
-        const { icon = EMOJI.CAT, align = 1, color = game.cfg.theme.text, highlite = game.cfg.theme.highlite, isEnableCancel = false } = options;
         this.pos.x = x;
         this.pos.y = y;
         this.pos.align = align;
         this.size = size;
         this.index = 0;
+        this.count = 0;
         this.color = color;
         this.highlite = highlite;
         this.isEnableCancel = isEnableCancel;
@@ -1346,23 +1386,23 @@ export class Menu extends Mono {//メニュー表示
         this.indexOffset = this.child.objs.length;
     }
     add(text) {
-        this.child.add(new Label(text, this.pos.x, this.pos.y + this.size * 1.5 * (this.child.objs.length - 2), { size: this.size, color: this.color, align: this.pos.align, valign: 1 }));
+        this.child.add(new Label(text, this.pos.x, this.pos.y + this.size * 1.5 * (this.count), { size: this.size, color: this.color, align: this.pos.align, valign: 1 }));
+        this.count++;
     }
     *coroSelect(newIndex = this.index) {
-        const length = this.child.objs.length - this.indexOffset;
-        function* move(key, direction) {
-            if (!game.input.isDown(key)) return;
-            this.moveIndex((this.index + direction) % length);
-            yield* waitForTimeOrFrag(game.input.isPress(key) ? game.cfg.input.repeatWaitFirst : game.cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
-        }
         this.moveIndex(newIndex);
         while (true) {
             yield undefined;
-            yield* move.call(this, 'up', length - 1);
-            yield* move.call(this, 'down', 1);
+            yield* this.move('up', this.count - 1);
+            yield* this.move('down', 1);
             if (game.input.isPress('z')) return this.child.objs[this.index + this.indexOffset].moji.text;
             if (this.isEnableCancel && game.input.isPress('x')) return undefined;
         }
+    }
+    *move(key, direction) {
+        if (!game.input.isDown(key)) return;
+        if (this.count > 0) this.moveIndex((this.index + direction) % (this.count));
+        yield* waitForTimeOrFrag(game.input.isPress(key) ? game.cfg.input.repeatWaitFirst : game.cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
     }
     moveIndex(newIndex) {
         this.child.objs[this.index + this.indexOffset].color.setColor(this.color);

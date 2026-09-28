@@ -1,8 +1,10 @@
-
 {
     "screenSize": {
         "width": 540,
         "height": 720
+    },
+    "graphics": {
+        "bloom": true
     },
     "font": {
         "default": {
@@ -26,7 +28,7 @@
     "theme": {
         "bg": "#000000",
         "text": "#ffffff",
-        "highlite": "yellow"
+        "highlite": "#EFC440"
     },
     "input": {
         "repeatWaitFirst": 0.25,

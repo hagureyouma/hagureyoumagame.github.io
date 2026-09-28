@@ -25,10 +25,10 @@
 'use strict';
 console.clear();
 
-import { EMOJI, game, Util, Rect, Mono, Coro, wait, waitForFrag, waitForTime, waitForTimeOrFrag, Child, Pos, Scale, Move, Anime, Ease, Guided, Collision, Brush, Tofu, Moji, Label, Particle, Gauge, Menu, Watch, Color, through } from "./youma.js";
+import { cfg, EMOJI, Game, Util, Rect, Mono, Coro, wait, waitForFrag, waitForTime, waitForTimeOrFrag, repeatFor, Child, Pos, Scale, Move, Lissajous, Anime, Ease, Guided, Collision, Brush, Tofu, Moji, Label, Particle, Gauge, Watch, Color, through } from "./youma.js";
 
 class Unit {//ユニットコンポーネント
-    static requires = [Coro, Pos, Scale, Move, Collision, Color];
+    static requires = [Coro, Pos, Scale, Move, Lissajous, Collision, Color];
     constructor(owner) {
         this.action = new UnitAction(owner);
         this.reset();
@@ -103,8 +103,8 @@ class Unit {//ユニットコンポーネント
     defeatRequied() {//撃破時に呼び出す
         this.owner.color.restore();
         this.scene.addPoint(this.data.point);
-        if (this.data.type === CharacterData.type.baddie) this.scene.addKo();
-        if (this.data.type === CharacterData.type.bomb) shared.playdata.total.bomb++;
+        if (this.data.type === CharaData.type.baddie) this.scene.addKo();
+        if (this.data.type === CharaData.type.bomb) shared.playdata.total.bomb++;
         this.onDefeat?.();
     }
     enableInvincible(time = 0, func = undefined) {
@@ -144,7 +144,7 @@ class UnitAction {
         this.targetBeforeX = this.targetBeforeY = 0;
     }
     update() {
-        if (this.horming != 0 && this.target.isExist) {
+        if (this.horming !== 0 && this.target.isExist) {
             const pos = this.owner.pos;
             const tPos = this.target.pos;
             let tx = this.targetBeforeX;
@@ -195,10 +195,9 @@ class Player extends Mono {//自機
         this.unit.onBanish = () => {
             this.unit.enableInvincible(datas.player.damagedInvincibilityTime);
         };
-        this.moji.set(Util.parseUnicode(data.char), game.width * 0.5, game.height - (data.size * 0.5), { size: data.size, color: data.color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
+        this.moji.set(Util.parseUnicode(data.char), game.width * 0.5, game.height - (data.size * 0.5), { size: data.size, color: data.color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
         this.collision.set(this.pos.width * 0.25, this.pos.height * 0.25);
         this.unit.coroDefeat = this.coroDefeat.bind(this);
-        //this.unit.status.invincible = true;
     }
     postUpdate() {
         const halfX = this.pos.width * 0.5;
@@ -276,7 +275,7 @@ class Player extends Mono {//自機
     *coroDefeat() {
         this.unit.playDefeatEffect();
         this.unit.defeatRequied();
-        this.isExist = false;
+        this.hide();
     }
 }
 class Spawner {//敵キャラ出現  
@@ -412,34 +411,28 @@ class Baddie extends Mono {//敵キャラ
     set(x, y, data, pattern, bullets, scene, parent) {
         this.routine = this.routines[data.routine](this, pattern, bullets, scene);
         this.pos.parent = parent;
-        this.moji.set(Util.parseUnicode(data.char), x, y, { size: data.size, color: data.color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
+        this.moji.set(Util.parseUnicode(data.char), x, y, { size: data.size, color: data.color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
         this.collision.set(this.pos.width, this.pos.height);
         this.unit.set(data, scene);
         return this;
     }
-    setAnime(isVirtical) {
-        const size = this.pos.width;
-        if (isVirtical) {
-            this.anime.relativeDegForTime(0, size / 5, size / 240, { easing: Ease.sineout, isLoop: true, isfirstRand: true });
-        } else {
-            this.anime.relativeDegForTime(90, size / 5, size / 240, { easing: Ease.sineout, isLoop: true, isfirstRand: true });
-        }
+    setAnime() {
+        const size = this.pos.width * 0.2;
+        this.lissajous.set(3, 2, size, size, { cycle: 4, phase: Util.rand(3) });
     }
     *coroAction() {
         yield* this.routine;
     }
     whichSpawnType() {
         let result = Baddie.spawnType.within;
-        let isMoveVirtical = false;
         if (this.pos.right < 0) {
             result = Baddie.spawnType.left;
         } else if (this.pos.left >= game.width) {
             result = Baddie.spawnType.right;
         } else if (this.pos.bottom < 0) {
             result = Baddie.spawnType.top;
-            isMoveVirtical = true;
         }
-        return [result, isMoveVirtical];
+        return result;
     }
     *routineBasicShot(user, pattern, shot) {
         yield* waitForTime(Util.rand(60) * game.delta); //ランダムで最大1秒まで待機
@@ -449,24 +442,21 @@ class Baddie extends Mono {//敵キャラ
         }
     }
     *routineBasic(user, pattern, moveSpeed, shot) {
+        user.setAnime();
         //射撃
         if (shot) user.coro.start(user.routineBasicShot(user, pattern, shot));
         //移動
-        const [spawnType, isAnimeVirtical] = user.whichSpawnType();
+        const spawnType = user.whichSpawnType();
         switch (spawnType) {
             case Baddie.spawnType.within:
-                user.setAnime(isAnimeVirtical);
                 break;
             case Baddie.spawnType.top:
-                user.setAnime(isAnimeVirtical);
                 user.move.set(0, moveSpeed);
                 break;
             case Baddie.spawnType.left:
-                user.setAnime(isAnimeVirtical);
                 user.move.set(moveSpeed, 0);
                 break;
             case Baddie.spawnType.right:
-                user.setAnime(isAnimeVirtical);
                 user.move.set(-moveSpeed, 0);
                 break;
         }
@@ -486,8 +476,8 @@ class Baddie extends Mono {//敵キャラ
                 bullets.multiWay(user.pos.x, user.pos.y, { count: 2, color: 'red' });
                 yield* waitForTime(2);
             };
-            const [spawnType, isAnimeVirtical] = user.whichSpawnType();
-            user.setAnime(isAnimeVirtical);
+            const spawnType = user.whichSpawnType();
+            user.setAnime();
             switch (spawnType) {
                 case Baddie.spawnType.left:
                     yield* user.move.relative(0 - user.pos.x, 0, moveSpeed * 2);
@@ -511,11 +501,19 @@ class Baddie extends Mono {//敵キャラ
         zako3: function* (user, pattern, bullets, scene) {
             const moveSpeed = 75;
             const shot1 = function* () {
+                const x = user.pos.linkX, y = user.pos.linkY;
                 const r = Util.rand(100);
                 if (r > 50) {
-                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'aqua', aim: scene.player });
+                    const deg = Util.xyToDeg(scene.player.pos.x - x, scene.player.pos.y - y);
+                    for (let i = 0; i < 3; i++) {
+                        bullets.multiWay(x, y, { deg, count: 5, color: 'aqua' });
+                        yield* waitForTime(0.2);
+                    }
                 } else {
-                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
+                    for (let i = 0; i < 3; i++) {
+                        bullets.multiWay(x, y, { count: 5, color: 'red' });
+                        yield* waitForTime(0.2);
+                    }
                 }
                 yield* waitForTime(3);
             }
@@ -526,6 +524,8 @@ class Baddie extends Mono {//敵キャラ
             user.unit.action.setGuided(0, 100, scene.player, moveSpeed);
         },
         boss1: function* (user, pattern, bullets, scene) {
+            //ボス初期化
+            user.setAnime();
             //取り巻き召喚
             const minionName = 'torimakicrow';
             const minionData = datas.baddies[minionName];
@@ -546,7 +546,7 @@ class Baddie extends Mono {//敵キャラ
             };
             const summonMinions = function* (name, count, space) {
                 //取り巻きの最大数が違うなら新規に呼び出す
-                if (minions.length != count) {
+                if (minions.length !== count) {
                     removeMinions();
                     minions = scene.spawner.formation(Baddie.name, 'circle', minionData, -1, scene.baddies, bullets, scene, { count, space, parent: user, isPlaySpawnEffect: true });
                     for (let i = 0; i < minions.length; i++) {
@@ -586,19 +586,21 @@ class Baddie extends Mono {//敵キャラ
                 user.remove();
             };
             //弾パターン
-            const circleShot = function* () {
+            const circleShot = function* (x = undefined, y = undefined) {
+                x ??= user.pos.x, y ??= user.pos.y;
                 const count = 24;
                 for (let i = 0; i < 6; i++) {
-                    bullets.circle(user.pos.x, user.pos.y, { count: count, color: 'red', offset: ((360 / count) * 0.5) * (i % 2) });
+                    bullets.circle(x, y, { count: count, color: 'red', offset: ((360 / count) * 0.5) * (i % 2) });
                     yield* waitForTime(0.5);
                 }
             };
-            const spiralShot = function* () {
+            const spiralShot = function* (x = undefined, y = undefined) {
+                x ??= user.pos.x, y ??= user.pos.y;
                 const deg = 360 / 6;
                 let degOffset = 0;
                 for (let i = 0; i < 16; i++) {
                     for (let j = 0; j < 6; j++) {
-                        bullets.multiWay(user.pos.x, user.pos.y, { deg: (deg * j) + degOffset, count: 1, speed: 100, color: 'yellow' });
+                        bullets.multiWay(x, y, { deg: (deg * j) + degOffset, count: 1, speed: 100, color: 'yellow' });
                     }
                     yield* waitForTime(0.2);
                     degOffset += 18;
@@ -613,7 +615,7 @@ class Baddie extends Mono {//敵キャラ
                 yield* waitForTime(0.5);
                 for (const b of bulletlist) {
                     const [x, y] = Util.normalizeXY(scene.player.pos.x - b.pos.x, scene.player.pos.y - b.pos.y);
-                    b.move.set(x * speed, y * speed, 2, 0);
+                    b.move.set(x * speed, y * speed);
                 }
                 yield* waitForTime(1);
             };
@@ -624,17 +626,19 @@ class Baddie extends Mono {//敵キャラ
                 }
             };
             const fanShot = function* (count = 3, rangeDeg = 15, radiantSpeed = 180, bulletSpeed = 200) {
+                const x = user.pos.x, y = user.pos.y;
                 const timeOfs = game.sec;
                 for (let i = 0; i < 10; i++) {
-                    bullets.multiWay(user.pos.x, user.pos.y, { deg: 270 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), count: count, speed: bulletSpeed, color: 'yellow' });
+                    bullets.multiWay(x, y, { deg: 270 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), count: count, speed: bulletSpeed, color: 'yellow' });
                     yield* waitForTime(0.3);
                 }
             };
             const fanShotParallel = function* (count = 3, rangeDeg = 15, radiantSpeed = 180, bulletSpeed = 400) {
+                const lx = user.pos.left, rx = user.pos.right, y = user.pos.y;
                 const timeOfs = game.sec;
                 for (let i = 0; i < 18; i++) {
-                    bullets.multiWay(user.pos.left, user.pos.y, { deg: 260 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), space: 7, count: count, speed: bulletSpeed, color: 'orange' });
-                    bullets.multiWay(user.pos.right, user.pos.y, { deg: 280 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), space: 7, count: count, speed: bulletSpeed, color: 'orange' });
+                    bullets.multiWay(lx, y, { deg: 260 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), space: 7, count: count, speed: bulletSpeed, color: 'orange' });
+                    bullets.multiWay(rx, y, { deg: 280 + (rangeDeg * Util.degToX((game.sec - timeOfs) * radiantSpeed)), space: 7, count: count, speed: bulletSpeed, color: 'orange' });
                     yield* waitForTime(0.125);
                 }
             };
@@ -660,7 +664,7 @@ class Baddie extends Mono {//敵キャラ
             };
             const randPos = function* () {
                 const x = Util.rand(game.width - user.pos.width) + (user.pos.width * 0.5);
-                const y = Util.rand((game.height * 0.6) - user.pos.height) + (user.pos.height * 0.5);
+                const y = Util.rand((game.height * 0.4) - user.pos.height) + (user.pos.height * 0.5);
                 yield* user.move.to(x, y, 200, { easing: Ease.sineInOut });
             };
             //ここからボスの動作
@@ -699,18 +703,20 @@ class Baddie extends Mono {//敵キャラ
             yield* resetPos();
             user.coro.start(ringShotRepeat());
             while (true) {
-                const spiralId = user.coro.start(spiralShot());
+                const x = user.pos.x, y = user.pos.y;
+                const spiralId = user.coro.start(spiralShot(x, y));
                 yield* waitForTime(0.8);
-                const circleId = user.coro.start(circleShot());
+                const circleId = user.coro.start(circleShot(x, y));
                 yield* user.coro.wait(spiralId, circleId);
                 yield* waitForTime(2);
             }
         },
         boss1torimaki: function* (user, pattern, bullets, scene) {
+            user.setAnime();
             user.move.setRevo(60);
             const shot1 = function* () {
                 if (Util.rand(100) < 30) {
-                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'aqua', aim: scene.player });
+                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { deg: Util.xyToDeg(scene.player.pos.x - user.pos.linkX, scene.player.pos.y - user.pos.linkY), count: 1, color: 'aqua' });
                 } else {
                     bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
                 }
@@ -722,23 +728,304 @@ class Baddie extends Mono {//敵キャラ
             const moveSpeed = 100;
             user.move.set(0, moveSpeed);
         },
-        boss2: function* (user, pattern, bullet, scene) {
-
+        boss2: function* (user, pattern, bullets, scene) {
+            //ボス初期化
+            user.addMix(Child);
+            user.child.addCreator('torimakiRotator', () => new Mono(Move));
+            user.setAnime();
+            //取り巻き召喚
+            const minionName = 'torimakidove';
+            const minionData = datas.baddies[minionName];
+            let minionsRotators = [];
+            const removeMinions = () => {
+                for (const rotator of minionsRotators) {
+                    for (const minion of rotator.minions) {
+                        minion?.remove();
+                    }
+                };
+                user.child.removeAll();
+                minionsRotators.length = 0;
+            }
+            const killMinions = () => {
+                for (const rotator of minionsRotators) {
+                    for (const minion of rotator.minions) {
+                        minion?.unit.defeat();
+                    }
+                }
+                user.child.removeAll();
+                minionsRotators.length = 0;
+            };
+            const _initMinion = (rotator, index) => {
+                rotator.liveCount++;
+                rotator.minions[index].unit.onDefeat = () => {
+                    rotator.minions[index] = undefined;
+                    rotator.liveCount--;
+                    if (rotator.liveCount > 0) return;
+                    rotator.obj.remove();
+                    rotator.obj = undefined;
+                };
+            };
+            const _createTorimakiRotator = (index, count, space, degOffset = 0) => {
+                const rotator = minionsRotators[index] ??= { obj: undefined, minions: undefined, liveCount: 0 };
+                if (rotator.obj) return rotator;
+                const obj = rotator.obj = user.child.pool('torimakiRotator');
+                const deg = (360 / count) * index + degOffset;
+                obj.pos.parent = user;
+                obj.pos.set(Util.degToX(deg) * space, Util.degToY(deg) * space, 0, 0);
+                obj.move.setRevo(120);
+                return rotator;
+            }
+            const summonMinions = function* (name, count, space) {
+                const minionGroupCount = 3;
+                const minionDeg = 360 / minionGroupCount;
+                const minionDistance = minionData.size;
+                //取り巻きの最大数が違うなら新規に呼び出す
+                if (minionsRotators.length !== count) {
+                    removeMinions();
+                    for (let i = 0; i < count; i++) {
+                        const rotator = _createTorimakiRotator(i, count, space);
+                        rotator.minions = scene.spawner.formation(Baddie.name, 'circle', minionData, -1, scene.baddies, bullets, scene, { count: minionGroupCount, space: minionDistance, parent: rotator.obj, isPlaySpawnEffect: true });
+                        for (let j = 0; j < minionGroupCount; j++) {
+                            _initMinion(rotator, j);
+                        }
+                    }
+                    return;
+                }
+                //倒された取り巻きだけ再召喚            
+                let rotatorDegOffset = 0;
+                for (let i = 0; i < count; i++) {
+                    const obj = minionsRotators[i].obj;
+                    if (!obj) continue;
+                    rotatorDegOffset = obj.pos.xyDeg - (i * (360 / count));
+                    break;
+                }
+                let minionDegOffset = 0;
+                gotDegOffset:
+                for (const rotator of minionsRotators) {
+                    for (let i = 0; i < rotator.minions.length; i++) {
+                        const minion = rotator.minions[i];
+                        if (!minion) continue;
+                        minionDegOffset = minion.pos.xyDeg - (i * minionDeg);
+                        break gotDegOffset;//JSにGotoあったの？
+                    }
+                }
+                for (let i = 0; i < count; i++) {
+                    const rotator = _createTorimakiRotator(i, count, space, rotatorDegOffset);
+                    for (let j = 0; j < minionGroupCount; j++) {
+                        if (rotator.minions[j]) continue;
+                        const deg = j * minionDeg + minionDegOffset;
+                        rotator.minions[j] = scene.spawner.spawn(scene.baddies, Baddie.name, Util.degToX(deg) * minionDistance, Util.degToY(deg) * minionDistance, minionData, 0, bullets, scene, rotator.obj, true);
+                        _initMinion(rotator, j);
+                    }
+                }
+            };
+            //撃破エフェクト
+            user.unit.coroDefeat = function* () {
+                killMinions();
+                user.coro.stopAll('main');
+                user.unit.defeatRequied();
+                const pos = user.pos;
+                for (let i = 0; i < 16; i++) {
+                    user.unit.playDefeatEffect(pos.left + Util.rand(pos.width), pos.top + Util.rand(pos.height));
+                    yield* waitForTime(1 / 8);
+                }
+                user.remove();
+            };
+            //弾パターン
+            const circleAimShot = function* () {
+                const count = 4;
+                const spreadSpeed = 200, spreadVias = 0.5, aimSpeed = 400;
+                //展開
+                const bulletList = bullets.circle(user.pos.x, user.pos.y, { speed: spreadSpeed, count: count * 4, color: 'aqua', isOutOfScreenToRemove: false });
+                yield* waitForTime(0.4);
+                //発射
+                const baseBullet = bulletList.at(-1);
+                const aimPhase = (bulletList, x, y) => {
+                    const [vx, vy] = Util.normalizeXY(x, y);
+                    for (const b of bulletList) {
+                        b.move.vx = b.move.vx * spreadVias + vx * aimSpeed;
+                        b.move.vy = b.move.vy * spreadVias + vy * aimSpeed;
+                    }
+                }
+                aimPhase(bulletList, scene.player.pos.x - baseBullet.pos.x, scene.player.pos.y - baseBullet.pos.y);
+                yield* waitForTime(1);
+            }
+            const circleAimShotCross = function* () {
+                const count = 4;
+                const spreadSpeed = 200, spreadVias = 0.5, aimSpeed = 400;
+                //展開
+                const leftBullets = bullets.circle(user.pos.left - user.pos.width, user.pos.y, { speed: spreadSpeed, count: count * 4, color: 'aqua', isOutOfScreenToRemove: false });
+                const rightBullets = bullets.circle(user.pos.right + user.pos.width, user.pos.y, { speed: spreadSpeed, count: count * 4, color: 'aqua', isOutOfScreenToRemove: false });
+                yield* waitForTime(0.4);
+                //発射
+                const baseIndex = leftBullets.length - count;
+                const leftBullet = leftBullets[baseIndex];
+                const rightBullet = rightBullets[baseIndex];
+                let lx = scene.player.pos.x - leftBullet.pos.x, rx = scene.player.pos.x - rightBullet.pos.x, y = 0, vx, vy;
+                if (Math.abs(lx) <= Math.abs(rx)) {
+                    y = scene.player.pos.y - rightBullet.pos.y;
+                    lx = rx * -1;
+                } else {
+                    y = scene.player.pos.y - leftBullet.pos.y;
+                    rx = lx * -1;
+                }
+                const aimPhase = (bulletList, x) => {
+                    [vx, vy] = Util.normalizeXY(x, y);
+                    for (const b of bulletList) {
+                        b.move.vx = b.move.vx * spreadVias + vx * aimSpeed;
+                        b.move.vy = b.move.vy * spreadVias + vy * aimSpeed;
+                    }
+                }
+                aimPhase(leftBullets, lx);
+                aimPhase(rightBullets, rx);
+                yield* waitForTime(1);
+            }
+            const circleAimShotCrossRepeat = function* () {
+                while (true) {
+                    yield* circleAimShotCross();
+                    yield* waitForTime(3);
+                }
+            }
+            const deraySpiralRandomShot = function* () {
+                const space = 16;
+                const count = 160;
+                const speed1 = 400;
+                const speed2 = 150;
+                const bulletlist = [];
+                let deg = 0;
+                const x = user.pos.x;
+                const y = user.pos.y;
+                const shot = (i, deg) => {
+                    const [bullet] = bullets.multiWay(x, y, { count: 1, speed: 0, color: 'red', isOutOfScreenToRemove: false });
+                    bulletlist[i] = bullet;
+                    const radius = (user.pos.width * 0.2) + i;
+                    bullet.move.relativeDeg(deg, radius, speed1);
+                    return space * 180 / (radius * Math.PI);
+                }
+                let current = 0;
+                yield* repeatFor(1.5, count, () => {
+                    deg += shot(current, deg);
+                    current++;
+                });
+                yield* waitForFrag(() => !bulletlist[count - 1].move.isActive);
+                for (let i = 0; i < count; i++) {
+                    const bullet = bulletlist[i];
+                    const deg = Util.rand(360);
+                    bullet.move.set(Util.degToX(deg) * speed2, Util.degToY(deg) * speed2);
+                }
+                yield* waitForTime(1);
+            }
+            const rapidFanShot = function* () {
+                const count = 16;
+                const space = 30;
+                const speed = 500;
+                const x = user.pos.linkX;
+                const y = user.pos.linkY;
+                yield* repeatFor(2, count, () => {
+                    bullets.multiWay(x, y, { space: space, count: 5, speed: speed, color: 'yellow' });
+                });
+            }
+            const rapidFanShotCross = function* () {
+                const count = 16;
+                const space = 30;
+                const speed = 500;
+                const x = user.pos.linkX;
+                const y = user.pos.linkY;
+                const width = user.pos.width;
+                yield* repeatFor(2, count, () => {
+                    bullets.multiWay(x - width, y, { space: space, count: 5, speed: speed, color: 'yellow' });
+                    bullets.multiWay(x + width, y, { space: space, count: 5, speed: speed, color: 'yellow' });
+                });
+            }
+            const guidedSplitShot = function* () {
+                const bulletlist = [];
+                for (let i = 0; i < 2; i++) {
+                    bulletlist.push(...bullets.multiWay(user.pos.x, user.pos.y, { deg: Util.rand(120, 60), space: 25, count: 1, speed: 500, firstSpeed: 0, accelTime: 3, color: 'white', guided: scene.player, guidedSpeed: 1.75 }));
+                }
+                yield* waitForTime(1.5);
+                for (let i = 0; i < 2; i++) {
+                    const bullet = bulletlist[i];
+                    bullets.multiWay(bullet.pos.x, bullet.pos.y, { deg: 90, space: 72, count: 5, speed: 500, firstSpeed: 0, accelTime: 3, color: 'white', guided: scene.player, guidedSpeed: 1 });
+                    bullet.remove();
+                }
+            };
+            //ボスの移動
+            const resetPos = function* () {
+                yield* user.move.to(game.width * 0.5, game.height * 0.3, 200, { easing: Ease.sineInOut });
+            };
+            const randPos = function* () {
+                const x = Util.rand(game.width - user.pos.width) + (user.pos.width * 0.5);
+                const y = Util.rand((game.height * 0.4) - user.pos.height) + (user.pos.height * 0.5);
+                yield* user.move.to(x, y, 200, { easing: Ease.sineInOut });
+            };
+            //ここからボスの動作
+            user.unit.enableInvincible();//登場時無敵
+            yield* resetPos();
+            user.unit.disableInvincible();
+            //パターン1
+            let shotList = [circleAimShot, rapidFanShot, guidedSplitShot];
+            let currentShot = 0;
+            while (user.unit.hpRatio > 0.6) {
+                if (currentShot === 0) yield* summonMinions(minionName, 3, user.pos.width);
+                yield* user.coro.startAndGetWaitForFrag(shotList[currentShot]());
+                if (!(user.unit.hpRatio > 0.6)) break;
+                currentShot = (currentShot + 1) % shotList.length;
+                if (Util.rand(100) > 30) {
+                    yield* randPos();
+                } else {
+                    yield* waitForTime(1);
+                }
+            }
+            yield* resetPos();
+            //パターン2
+            shotList = [circleAimShotCross, rapidFanShotCross, deraySpiralRandomShot, guidedSplitShot];
+            currentShot = 0;
+            while (user.unit.hpRatio > 0.3) {
+                if (currentShot === 0) yield* summonMinions(minionName, 5, user.pos.width);
+                yield* user.coro.startAndGetWaitForFrag(shotList[currentShot]());
+                if (!(user.unit.hpRatio > 0.3)) break;
+                currentShot = (currentShot + 1) % shotList.length;
+                if (Util.rand(100) > 30) {
+                    yield* randPos();
+                    if (Util.rand(100) > 40) yield* randPos();
+                } else {
+                    yield* waitForTime(1.5);
+                }
+            }
+            //パターン3
+            killMinions();
+            yield* resetPos();
+            user.coro.start(circleAimShotCrossRepeat());
+            while (true) {
+                yield* user.coro.wait(user.coro.start(rapidFanShotCross()), user.coro.start(deraySpiralRandomShot()));
+            }
         },
-    };
+        boss2torimaki: function* (user, pattern, bullets, scene) {
+            user.setAnime();
+            user.move.setRevo(120);
+            const shot1 = function* () {
+                if (Util.rand(100) < 30) {
+                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { deg: Util.xyToDeg(scene.player.pos.x - user.pos.linkX, scene.player.pos.y - user.pos.linkY), count: 1, color: 'aqua' });
+                } else {
+                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 1, color: 'red' });
+                }
+                yield* waitForTime(3);
+            };
+            user.coro.start(user.routineBasicShot(user, pattern, shot1));
+        }
+    }
 }
-class Bullet {//弾コンポーネント    
+class Bullet {//弾コンポーネント  
     constructor() {
         this.reset();
     }
     reset() {
-        this.set(1, 0)
+        this.set(1, 0, false)
     }
-    set(damage, point, through, effectContainer) {
+    set(damage, point, through) {
         this.damage = damage;
         this.point = point;
         this.through = through;
-        this.effectContainer = effectContainer;
     }
 }
 class Attack extends Mono {
@@ -746,7 +1033,7 @@ class Attack extends Mono {
         super(Guided, Collision, Brush, Bullet);
     }
     set(x, y, vx, vy, firstSpeed, accelTime, color, damage, point, isOutOfScreenToRemove) {
-        this.addMix(OutToRemove, true);
+        this.addMix(OutToRemove, 0);
         this.outtoremove.isOutOfScreenToRemove = isOutOfScreenToRemove;
         this.pos.set(x, y, 8, 8);
         this.pos.align = 1;
@@ -759,8 +1046,10 @@ class Attack extends Mono {
         this.bullet.set(damage, point, false);
         return this;
     }
-    hit(effect) {
-        //effect.emittCircle(5, 40, 0.5, 16, this.color.value, this.pos.linkX, this.pos.linkY, false, { emoji: EMOJI.STAR });
+    vanish(effect) {
+        const size = this.pos.width;
+        effect.emittCircle(5, size * 2, 0.5, size * 2, this.color.value, this.pos.linkX, this.pos.linkY, false, { emoji: EMOJI.STAR });
+        this.remove();
     }
 }
 class BulletBox extends Mono {//弾
@@ -774,9 +1063,8 @@ class BulletBox extends Mono {//弾
         const bullet = this.child.pool('bullet').set(x, y, vx, vy, firstSpeed, accelTime, color, damage, point, isOutOfScreenToRemove);
         return bullet;
     }
-    multiWay(x, y, { deg = 270, space = 30, count = 3, speed = 150, firstSpeed = 0, accelTime = 0, color = 'red', aim = undefined, guided = undefined, guidedSpeed = 0, damage = 1, point = 0, isOutOfScreenToRemove = true } = {}) {
+    multiWay(x, y, { deg = 270, space = 30, count = 3, speed = 150, firstSpeed = 0, accelTime = 0, color = 'red', guided = undefined, guidedSpeed = 0, damage = 1, point = 0, isOutOfScreenToRemove = true } = {}) {
         let d = deg;
-        if (aim) d = Util.xyToDeg(aim.pos.x - x, aim.pos.y - y);
         const offset = space * (count - 1) / 2;
         const result = [];
         for (let i = 0; i < count; i++) {
@@ -827,15 +1115,168 @@ class BombCarrier extends Mono {
         bomb.set(x, y);
     }
 }
+class BgDeco extends Mono {
+    constructor() {
+        super(Coro, Child);
+        this.child.addCreator('stars', () => this._decoCreator());
+        this.child.addCreator('cloud', () => this._decoCreator());
+        this.child.addCreator('fullmoon', () => this._fullmoonCreator());
+    }
+    _decoCreator() {
+        const deco = new Mono(Move, Moji);
+        deco.update = () => {
+            if (deco.pos.top > game.height) {
+                deco.remove();
+            }
+        };
+        return deco;
+    }
+    _fullmoonCreator() {
+        return new Mono(Move, Brush);
+    }
+    Run() {
+        this.child.removeAll();
+        this.coro.reset();
+        for (let i = 0; i < 120; i++) {
+            this._createStarfall(true);
+        }
+        for (let i = 0; i < 5; i++) {
+            this._createCloud(true);
+        }
+        this.coro.start(this._coroStars());
+        this.coro.start(this._coroCloud());
+    }
+    _createStar(x, y, size) {
+        const color = '#ffffff';
+        const star = this.child.pool('stars');
+        star.moji.set(Util.parseUnicode(EMOJI.STAR), x, y, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
+        star.color.setAlpha(0.5);
+        return star;
+    }
+    _createStarfall(isFirst = false) {
+        const sizeMax = 10;
+        const sizeMin = 2;
+        const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1);
+        const x = Util.rand(game.width, 0);
+        const y = -size + (isFirst ? Util.rand(game.height) : 0);
+        const star = this._createStar(x, y, size);
+        const fallSpeed = size * 5;
+        star.move.set(0, fallSpeed);
+    }
+    _createShootingStar() {
+        const size = 10;
+        const x = Util.rand(game.width, 0);
+        const y = Util.rand(game.height * 0.5);
+        const star = this._createStar(x, y, size);
+        const speed = 300;
+        const deg = 270 + 45 * (x < game.width * 0.5 ? 1 : -1);
+        star.move.set(Util.degToX(deg) * speed, Util.degToY(deg) * speed);
+        star.move.setRotate(540);
+    }
+    * _coroStars() {
+        while (true) {
+            if (Util.rand(100) < 5) this._createShootingStar();
+            this._createStarfall();
+            yield* waitForTime(0.25);
+        }
+    }
+    _createCloud(isFirst) {
+        const sizeMax = game.width * 0.5;
+        const sizeMin = sizeMax * 0.2;
+        const color = datas.color.cloud;
+        const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1.75);
+        const x = game.width * 0.5 + (Util.rand((game.width + size) * 0.5, size) * (Util.rand(1, 0) ? 1 : -1));
+        const y = -size + (isFirst ? Util.rand(game.height) : 0);
+        const scrollSpeed = size * 1.5;
+        const c = this.child.pool('cloud');
+        c.moji.set(Util.parseUnicode(EMOJI.CLOUD), x, y, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
+        c.color.setAlpha(0.5 + 0.25 * Util.normalize(sizeMax, sizeMin, size));
+        c.move.set(0, scrollSpeed);
+    }
+    * _coroCloud() {
+        while (true) {
+            this._createCloud();
+            yield* waitForTime(Util.rand(2, 1));
+        }
+    }
+    _createFullMoon() {
+        const moon = this.child.pool('fullmoon');
+        moon.pos.align = 1;
+        moon.pos.valign = 1;
+        const kikilala = game.width * 0.5;
+        moon.pos.width = kikilala;
+        moon.pos.height = kikilala;
+        moon.pos.x = kikilala;
+        moon.pos.y = -(kikilala * 0.5);
+        moon.brush.circle();
+        moon.color.setColor(datas.color.moon);
+        moon.move.relative(0, kikilala + kikilala * 0.2, kikilala * 0.5);
+    }
+    moonRise() {
+        this._createFullMoon();
+    }
+}
+class Menu extends Mono {//メニュー表示
+    constructor(x, y, size, { icon = EMOJI.CAT, align = 1, color = cfg.theme.text, highlite = cfg.theme.highlite, isEnableCancel = false } = {}) {
+        super(Pos, Child);
+        this.pos.x = x;
+        this.pos.y = y;
+        this.pos.align = align;
+        this.size = size;
+        this.index = 0;
+        this.count = 0;
+        this.color = color;
+        this.highlite = highlite;
+        this.isEnableCancel = isEnableCancel;
+        this.child.add(this.curL = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: cfg.font.emoji.name, align: 2, valign: 1 }));
+        this.child.add(this.curR = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: cfg.font.emoji.name, valign: 1 }));
+        this.indexOffset = this.child.objs.length;
+    }
+    add(text) {
+        this.child.add(new Label(text, this.pos.x, this.pos.y + this.size * 1.5 * (this.count), { size: this.size, color: this.color, align: this.pos.align, valign: 1 }));
+        this.count++;
+    }
+    *coroSelect(newIndex = this.index) {
+        this.moveIndex(newIndex);
+        while (true) {
+            yield undefined;
+            yield* this.move('up', this.count - 1);
+            yield* this.move('down', 1);
+            if (game.input.isPress('z')) return this.child.objs[this.index + this.indexOffset].moji.text;
+            if (this.isEnableCancel && game.input.isPress('x')) return undefined;
+        }
+    }
+    *move(key, direction) {
+        if (!game.input.isDown(key)) return;
+        if (this.count > 0) this.moveIndex((this.index + direction) % (this.count));
+        yield* waitForTimeOrFrag(game.input.isPress(key) ? cfg.input.repeatWaitFirst : cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
+    }
+    moveIndex(newIndex) {
+        this.child.objs[this.index + this.indexOffset].color.setColor(this.color);
+        this.index = newIndex;
+        const item = this.child.objs[newIndex + this.indexOffset];
+        item.color.setColor(this.highlite);
+        const w = item.pos.width;
+        const x = (w * 0.5) * this.pos.align;
+        this.curL.pos.x = item.pos.x - x;
+        this.curL.pos.y = item.pos.y;
+        this.curR.pos.x = item.pos.x - x + w;
+        this.curR.pos.y = item.pos.y;
+    }
+    current = () => this.index === -1 ? undefined : this.child.objs[this.index + this.indexOffset].moji.text;
+}
+
 class SceneDebug extends Mono {//デバッグルーム
     constructor() {
         super(Child);
-        this.child.add(new Label('実験室'));
+        //this.child.add(new Label('実験室'));
 
-        const y = new Mono(Coro, Move, Scale, Brush);
-        y.pos.set(game.width * 0.5, game.height * 0.5, 256, 256);
+        const y = new Mono(Coro, Move, Lissajous, Scale, Brush);
+        y.pos.set(game.width * 0.5, game.height * 0.5, 128, 128);
         y.pos.align = 1;
         y.pos.valign = 1;
+        //y.move.setRevo(30);
+        y.lissajous.set(0.5, 1, 128, 128);
         y.color.setColor('blue');
         y.coro.start(function* () {
             while (true) {
@@ -844,8 +1285,38 @@ class SceneDebug extends Mono {//デバッグルーム
                 yield* waitForFrag(() => game.input.isPress('x'));
             }
         }());
-        this.child.add(y);
+        //this.child.add(y);
 
+        //文字表示テスト
+        // let m = new Mono(Collision, Moji);
+        // m.moji.set(Util.parseUnicode(EMOJI.CROW), game.width * 0.5, game.height * 0.5, { size: 128, font: cfg.font.emoji.name, useImagecache: false });
+        // m.pos.scaleX = 2;
+        // m.pos.scaleY = 2;
+        // m.collision.set(m.pos.width, m.pos.height);
+        // m.collision.isVisible = true;
+        // this.child.add(m);
+
+        let text = ['あ', 'い', 'う'];
+        let i = 0;
+        const put = () => {
+            return text[i];
+        }
+        let m = new Mono(Coro, Move, Scale, Collision, Moji);
+        m.moji.set(put, 0, 256, { size: 128, font: cfg.font.emoji.name, useImagecache: true });
+        m.pos.scaleX = 2;
+        m.pos.scaleY = 2;
+        m.collision.set(m.pos.width, m.pos.height);
+        m.collision.isVisible = true;
+        m.color.alpha = 0.2;
+        m.coro.start(function* () {
+            while (true) {
+                m.scale.set(0, 0);
+                yield* m.scale.set(2, 2, 1);
+                yield* waitForFrag(() => game.input.isPress('x'));
+                i = (i + 1) % 3;
+            }
+        }());
+        this.child.add(m);
     }
     *coroDefault() {
         game.pushScene(this);
@@ -859,72 +1330,85 @@ class SceneDebug extends Mono {//デバッグルーム
 class SceneTitle extends Mono {//タイトル画面
     constructor() {
         super(Child);
+        //背景
+        this.child.add(this.bg = new BgDeco());
         //タイトル
-        const titleY = game.height * 0.25;
-        this.child.add(new Label(text.title, game.width * 0.5, titleY, { size: game.cfg.fontSize.large, color: game.cfg.theme.highlite, align: 1, valign: 1 }));
-        this.child.add(new Label(text.title2, game.width * 0.5, titleY + game.cfg.fontSize.large * 1.5, { size: game.cfg.fontSize.large, align: 1, valign: 1 }));
+        this.child.add(this.title = new Title());
         //ボタンを押してね
-        this.child.add(this.presskey = new Label(text.presskey, game.width * 0.5, game.height * 0.5 + game.cfg.fontSize.medium * 1.5, { size: game.cfg.fontSize.medium, align: 1, valign: 1 }));
-        //コピーライト表示
-        this.child.add(new Label(text.title_copyright, game.width * 0.5, game.height - game.cfg.fontSize.small, { size: game.cfg.fontSize.small, align: 1, valign: 2 }));
+        this.child.add(this.presskey = new Label(text.presskey, game.width * 0.5, game.height * 0.5 + cfg.fontSize.medium * 1.5, { size: cfg.fontSize.medium, align: 1, valign: 1 }));
         //メニュー
-        this.child.add(this.titleMenu = new SceneTitleMenu(this));
-        game.setCoroutine(this.coroDefault());
+        this.title.child.add(this.titleMenu = new TitleMenu());
+        this.titleMenu.hide();
     }
     *coroDefault() {
+        game.pushScene(this);
+        this.bg.Run();
         this.presskey.color.blink(0.5);
         while (true) {
             yield undefined;
             if (!game.input.isPress('z')) continue;
-            this.presskey.isExist = false;
-            yield* this.titleMenu.coroDefault();
-            this.presskey.isExist = true;
+            this.presskey.hide();
+            yield* this.coroTitleMenu();
+            this.presskey.show();
             this.presskey.color.blink(0.5);
         }
     }
-
+    *coroTitleMenu() {
+        this.titleMenu.show();
+        while (true) {
+            const result = yield* this.titleMenu.menu.coroSelect();
+            if (!result) {
+                this.titleMenu.menu.moveIndex(0);
+                this.titleMenu.hide();
+                return;
+            }
+            if (result === text.start) {
+                this.hide();
+                yield* new ScenePlay().coroDefault();
+                this.show();
+                continue;
+            }
+            this.title.hide();
+            if (result === text.highscore) yield* new SceneHighscore().coroDefault();
+            if (result === text.credit) yield* new SceneCredit().coroDefault();
+            if (result === '実験室') yield* new SceneDebug().coroDefault();
+            this.title.show();
+        }
+    }
 }
-class SceneTitleMenu extends Mono {
-    constructor(owner) {
+class Title extends Mono {//タイトル
+    constructor() {
         super(Child);
-        this.owner = owner;
-        this.isExist = false;
+        //タイトル
+        const titleY = game.height * 0.25;
+        this.child.add(new Label(text.title, game.width * 0.5, titleY, { size: cfg.fontSize.large, color: cfg.theme.highlite, align: 1, valign: 1 }));
+        this.child.add(new Label(text.title2, game.width * 0.5, titleY + cfg.fontSize.large * 1.5, { size: cfg.fontSize.large, align: 1, valign: 1 }));
+        //コピーライト表示
+        this.child.add(new Label(text.title_copyright, game.width * 0.5, game.height - cfg.fontSize.small, { size: cfg.fontSize.small, align: 1, valign: 2 }));
+    }
+}
+class TitleMenu extends Mono {//タイトルメニュー
+    constructor() {
+        super(Child);
         //メニュー
-        this.child.add(this.menu = new Menu(game.width * 0.5, game.height * 0.5, game.cfg.fontSize.medium, { isEnableCancel: true }));
+        this.child.add(this.menu = new Menu(game.width * 0.5, game.height * 0.5, cfg.fontSize.medium, { isEnableCancel: true }));
         this.menu.add(text.start);
         this.menu.add(text.highscore);
         this.menu.add(text.credit);
         this.menu.add('実験室');
         //操作方法
-        this.child.add(this.explanation1 = new Label(text.explanation1, game.width * 0.5, game.height - (game.cfg.fontSize.normal * 3), { align: 1, valign: 2 }));
-        this.child.add(this.explanation2 = new Label(text.explanation2, game.width * 0.5, game.height - game.cfg.fontSize.normal * 2, { align: 1, valign: 2 }));
-    }
-    *coroDefault() {
-        this.isExist = true;
-        while (true) {
-            const result = yield* this.menu.coroSelect();
-            if (!result) {
-                this.isExist = false;
-                return;
-            }
-            this.owner.isExist = false;
-            if (result === text.start) yield* new ScenePlay().coroDefault();
-            if (result === text.highscore) yield* new SceneHighscore().coroDefault();
-            if (result === text.credit) yield* new SceneCredit().coroDefault();
-            if (result === '実験室') yield* new SceneDebug().coroDefault();
-            this.owner.isExist = true;
-        }
+        this.child.add(this.explanation1 = new Label(text.explanation1, game.width * 0.5, game.height - (cfg.fontSize.normal * 3), { align: 1, valign: 2 }));
+        this.child.add(this.explanation2 = new Label(text.explanation2, game.width * 0.5, game.height - cfg.fontSize.normal * 2, { align: 1, valign: 2 }));
     }
 }
 class ScenePlay extends Mono {//プレイ画面
     constructor() {
         super(Coro, Child);
         this.isClear = false;
-        this.extendedScore = 0;
         this.bossMode = false;
         this.spawner = new Spawner(this);
         //背景
-        this.child.add(this.background = new Mono(Child));
+        this.child.add(this.background = new BgDeco());
         //ボム
         this.child.add(this.playerbomb = new BombCarrier());
         //プレイヤー
@@ -934,12 +1418,12 @@ class ScenePlay extends Mono {//プレイ画面
         //敵キャラ
         this.child.add(this.baddies = new Mono(Child));
         this.baddies.child.addCreator(Baddie.name, () => new Baddie());
-        //アイテム
-        this.child.add(this.items = new Mono(Child));
-        this.items.child.addCreator(Baddie.name, () => new Baddie());
         //弾
         this.child.add(this.playerbullets = new BulletBox());
         this.child.add(this.baddiesbullets = new BulletBox());
+        //アイテム
+        this.child.add(this.items = new Mono(Child));
+        this.items.child.addCreator(Baddie.name, () => new Baddie());
         //パーティクル
         this.child.add(this.effect = new Particle());
         this.effect.child.drawlayer = 'effect';
@@ -954,19 +1438,19 @@ class ScenePlay extends Mono {//プレイ画面
         //this.ui.child.add(this.fpsView = new Label(() => `FPS: ${game.fps}`, game.width - 2, 2, { align: 2 }));
         this.ui.child.add(this.textStage = new Label(() => `STAGE: ${shared.playdata.total.stage}`, game.width - 2, 2, { align: 2 }));
         //残機表示
-        this.ui.child.add(this.remains = new Label(() => this.createRemainsText(datas.player.data.char, shared.playdata.total.remains), 0, game.cfg.fontSize.normal * 1.25, { color: datas.player.data.color, font: game.cfg.font.emoji.name }));
+        this.ui.child.add(this.remains = new Label(() => this.createRemainsText(datas.player.data.char, shared.playdata.total.remains), 0, cfg.fontSize.normal * 1.25, { color: datas.player.data.color, font: cfg.font.emoji.name }));
         //ボム所持数表示
-        this.ui.child.add(this.bomb = new Label(() => this.createRemainsText(EMOJI.BOMB, shared.playdata.total.bomb), game.cfg.fontSize.normal * 1.25 * 6, game.cfg.fontSize.normal * 1.25, { color: 'black', font: game.cfg.font.emoji.name }));
+        this.ui.child.add(this.bomb = new Label(() => this.createRemainsText(EMOJI.BOMB, shared.playdata.total.bomb), cfg.fontSize.normal * 1.25 * 6, cfg.fontSize.normal * 1.25, { color: 'black', font: cfg.font.emoji.name }));
         //テロップ
-        this.ui.child.add(this.telop = new Label('', game.width * 0.5, game.height * 0.5, { size: game.cfg.fontSize.medium, color: game.cfg.theme.highlite, align: 1, valign: 1 }));
-        this.telop.isExist = false;
+        this.ui.child.add(this.telop = new Label('', game.width * 0.5, game.height * 0.5, { size: cfg.fontSize.medium, color: cfg.theme.highlite, align: 1, valign: 1 }));
+        this.telop.hide();
         //デバッグ表示
         this.ui.child.add(this.debug = new Watch());
-        this.debug.pos.y = game.cfg.fontSize.normal * 1.25 * 2;
+        this.debug.pos.y = cfg.fontSize.normal * 1.25 * 2;
         this.debug.add(() => `敵の数:${this.baddies.child.liveCount}`);
         this.debug.add(() => `自機の弾の数${this.playerbullets.child.liveCount}`);
         this.debug.add(() => `敵の弾の数${this.baddiesbullets.child.liveCount}`);
-        this.debug.add(() => `パーティクルの数${this.effect.child.liveCount}`);
+        this.debug.add(() => `粒子の数${this.effect.child.liveCount}`);
         this.debug.add(() => `背景の数${this.background.child.liveCount}`);
     }
     createRemainsText(emoji, count) {
@@ -983,9 +1467,9 @@ class ScenePlay extends Mono {//プレイ画面
     * showTelop(text, time, blink = 0) {
         this.telop.moji.set(text);
         this.telop.color.blink(blink);
-        this.telop.isExist = true;
+        this.telop.show();
         yield* waitForTime(time);
-        this.telop.isExist = false;
+        this.telop.hide();
     }
     hitCheck(selfs, others, onHit) {
         selfs.child.each((self) => {
@@ -1031,8 +1515,11 @@ class ScenePlay extends Mono {//プレイ画面
         while (true) {
             yield undefined;
             if (this.isClear) {//ステージクリアした
+                this.baddiesbullets.child.each((b) => {
+                    b.vanish(this.effect);
+                })
                 yield* this.showTelop(text.stageclear, 2);
-                yield* new SceneClear(shared.getCurrentStat()).coroDefault();
+                yield* new SceneClear().coroDefault();
                 this.nextStage();
                 continue;
             }
@@ -1040,7 +1527,7 @@ class ScenePlay extends Mono {//プレイ画面
                 yield* this.showTelop(text.gameover, 2);
                 const [isNewRecord, rank] = this.isNewRecord();
                 if (isNewRecord) {
-                    shared.save(game.cfg.saveData.name)
+                    shared.save(cfg.saveData.name)
                     yield* new SceneHighscore(isNewRecord, rank).coroDefault();
                 }
                 switch (yield* new SceneConfirm(text.gameover, [text.continue, text.returntitle]).coroDefault()) {
@@ -1054,7 +1541,7 @@ class ScenePlay extends Mono {//プレイ画面
                 continue;
             }
             if (game.input.isPress('x')) {//ポーズメニューを開く
-                this.isActive = false;
+                this.pause();
                 switch (yield* new SceneConfirm(text.pause, [text.resume, text.restart, text.returntitle], { isPause: true, isEnableCancel: true }).coroDefault()) {
                     case text.restart:
                         this.newGame();
@@ -1063,7 +1550,7 @@ class ScenePlay extends Mono {//プレイ画面
                         game.popScene();
                         return;
                 }
-                this.isActive = true;
+                this.resume();
                 continue;
             }
             //経過時間
@@ -1072,10 +1559,9 @@ class ScenePlay extends Mono {//プレイ画面
     }
     * coroStage() {
         //yield* waitForFrag(()=>false);
-        if (!this.bossMode) yield* this._phaseInvasion();
+        //if (!this.bossMode) yield* this._phaseInvasion();
         yield* this._phaseBoss();
         this.player.collision.isEnable = false;
-        this.isClear = true;
     }
     * _phaseInvasion() {//道中
         const items = ['bomb'];
@@ -1095,9 +1581,9 @@ class ScenePlay extends Mono {//プレイ画面
             const formation = data.forms[Util.rand(data.forms.length - 1)];
             const spawnCount = Util.rand(Util.clamp(shared.playdata.total.stage * 0.25, 5, Math.floor(game.width / data.size)));
             this.spawner.formation(Baddie.name, formation, data, -1, this.baddies, this.baddiesbullets, this, { count: spawnCount });
-            yield* waitForTime(Util.rand(spawnCount * spawnIntervalFactor * 0.5, spawnIntervalFactor))
+            yield* waitForTime((spawnCount * 0.5 + Util.rand(1) ? 1 : -1) * spawnIntervalFactor);
             //アイテム出現    
-            if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {
+            if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {//敵が20隊出現する毎に5%の確率
                 itemSpawnCounter = 0;
                 const itemName = items[Util.rand(items.length - 1)];
                 const data = datas.items[itemName];
@@ -1109,29 +1595,32 @@ class ScenePlay extends Mono {//プレイ画面
         yield* this.showTelop('WARNING!', 2, 0.25);
     }
     * _phaseBoss() {//ボス戦
-        const bossName = 'greatcrow';
-        //const bossName = 'greatdove';
+        //背景
+        this.background.moonRise();
+        //ボス呼び出し
+        const bossName = datas.bosses[(shared.playdata.total.stage - 1) % datas.bosses.length];
         const data = datas.baddies[bossName];
         const formation = data.forms[0];
         const [boss] = this.spawner.formation(Baddie.name, formation, data, -1, this.baddies, this.baddiesbullets, this, { x: game.width * 0.5 });
         //ボスのHPをステージ数に応じて増やす
         const collencetHP = Math.floor(boss.unit.status.hpMax * (1 + (shared.playdata.total.stage - 1) / 10));
         boss.unit.status.hp = boss.unit.status.hpMax = collencetHP;
-
-        const waitForBossDefeat = wait();
         boss.unit.onDefeat = () => {
-            waitForBossDefeat.return();
+            this.isClear = true;
         }
         //ボスのHPゲージ
         const bossHpGauge = new Gauge();
         bossHpGauge.pos.set(game.width * 0.5, 28 * 3, game.width * 0.9, 10);
         bossHpGauge.pos.align = 1;
-        bossHpGauge.color = game.cfg.theme.text;
+        bossHpGauge.color = cfg.theme.text;
         bossHpGauge.max = boss.unit.status.hp;
         bossHpGauge.watch = () => boss.unit.status.hp;
         this.charaUi.child.add(bossHpGauge);
         //ボスが倒されるまで待機
-        yield* waitForBossDefeat;
+        while (!this.isClear) {
+            if (this.isFailure) boss.unit.status.invincible = true;
+            yield undefined;
+        }
         bossHpGauge.remove();
     }
     newGame() {
@@ -1146,7 +1635,7 @@ class ScenePlay extends Mono {//プレイ画面
     }
     playerSpawn(isRespawn = false) {
         this.player ??= this.playerside.child.pool(Player.name);
-        this.player.isExist = true;
+        this.player.show();
         this.player.set(this);
         this.player.unit.onDefeat = () => {
             shared.playdata.total.remains--;
@@ -1164,17 +1653,19 @@ class ScenePlay extends Mono {//プレイ画面
     resetStage() {
         this.isClear = false;
         this.extendedCount = (Math.floor(shared.playdata.total.point / datas.game.extendedScore) + 1) * datas.game.extendedScore;
+        this.background.Run();
+        this.playerbomb.child.removeAll();
         this.playerSpawn();
         this.baddies.child.removeAll();
         this.playerbullets.child.removeAll();
         this.baddiesbullets.child.removeAll();
+        this.items.child.removeAll();
         this.effect.child.removeAll();
         this.charaUi.child.removeAll();
         this.coro.reset();
         this.coro.start(this.coroStage());
         game.layers.get('effect').clearBlur();
-        this.bgAnimations();
-        this.telop.isExist = false;
+        this.telop.hide();
     }
     addPoint(point) {
         shared.playdata.total.point += point;
@@ -1197,61 +1688,15 @@ class ScenePlay extends Mono {//プレイ画面
     }
     get elaps() { return shared.playdata.total.time - shared.playdata.backup.time; }
     get isFailure() { return shared.playdata.total.remains < 0; }
-    bgAnimations() {
-        this.coro.start(this._coroStars());
-        this.coro.start(this._coroCloud());
-    }
-    *_coroStars() {
-        this.background.child.addCreator('stars', () => new Mono(Move, Moji));
-        const sizeMax = 10;
-        const sizeMin = 2;
-        const color = '#ffffff';
-        while (true) {
-            const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1);
-            const x = Util.rand(game.width, 0);
-            const y = -size;
-            const scrollSpeed = size * 5;
-            const c = this.background.child.pool('stars');
-            c.moji.set(Util.parseUnicode(EMOJI.STAR), x, y, { size, cloudColor: color, font: game.cfg.font.emoji.name, align: 1, valign: 1, angle: Util.rand(359, 0) });  
-            c.color.setAlpha(0.25);
-            c.move.set(0, scrollSpeed);
-            c.move.setRotate(180);
-            c.update = () => {
-                if (c.pos.top > game.height) c.remove();
-            }
-            yield* waitForTime(0.1);
-        }
-    }
-    *_coroCloud() {
-        this.background.child.addCreator('cloud', () => new Mono(Move, Moji));
-        const sizeMax = game.width * 0.5;
-        const sizeMin = sizeMax * 0.2;
-        const color = '#ffffff';
-        while (true) {
-            const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1.75);
-            const x = game.width * 0.5 + (Util.rand((game.width + size) * 0.5, size) * (Util.rand(1, 0) ? 1 : -1));
-            const y = -size;
-            const scrollSpeed = size * 1.5;
-            const c = this.background.child.pool('cloud');
-            c.moji.set(Util.parseUnicode(EMOJI.CLOUD), x, y, { size, cloudColor: color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
-            c.color.setAlpha(0.25 + 0.25 * Util.normalize(sizeMax, sizeMin, size));
-            c.move.set(0, scrollSpeed);
-            c.update = () => {
-                if (c.pos.top > game.height) c.remove();
-            }
-            yield* waitForTime(Util.rand(2, 1));
-        }
-    }
 }
 class SceneConfirm extends Mono {//確認メッセージ
-    constructor(caption, items, options = {}) {
-        const { isEnableCancel = false, isPause = false, isDialog = false } = options;
+    constructor(caption, items, { isEnableCancel = false, isPause = false, isDialog = false } = {}) {
         super(Child);
-        const captionColor = isDialog ? game.cfg.theme.text : game.cfg.theme.highlite;
+        const captionColor = isDialog ? cfg.theme.text : cfg.theme.highlite;
         this.child.drawlayer = 'ui';
         this.child.add(new Tofu().set(0, 0, game.width, game.height, 'black', 0.5));
-        this.child.add(new Label(caption, game.width * 0.5, game.height * 0.25, { size: game.cfg.fontSize.medium, color: captionColor, align: 1, valign: 1 }));
-        this.child.add(this.menu = new Menu(game.width * 0.5, game.height * 0.5, game.cfg.fontSize.medium, { isEnableCancel: isEnableCancel }));
+        this.child.add(new Label(caption, game.width * 0.5, game.height * 0.25, { size: cfg.fontSize.medium, color: captionColor, align: 1, valign: 1 }));
+        this.child.add(this.menu = new Menu(game.width * 0.5, game.height * 0.5, cfg.fontSize.medium, { isEnableCancel: isEnableCancel }));
         for (const item of items) this.menu.add(item);
         this.isPause = isPause;
     }
@@ -1268,10 +1713,10 @@ class SceneClear extends Mono {//ステージクリア画面
     constructor() {
         super(Child);
         this.child.drawlayer = 'ui';
-        this.child.add(new Label(text.stageclear, game.width * 0.5, game.height * 0.25, { size: game.cfg.fontSize.medium, color: game.cfg.theme.highlite, align: 1, valign: 1 }));
+        this.child.add(new Label(text.stageclear, game.width * 0.5, game.height * 0.25, { size: cfg.fontSize.medium, color: cfg.theme.highlite, align: 1, valign: 1 }));
         let x = game.width * 0.4;
         const y = game.height * 0.4;
-        const line = game.cfg.fontSize.medium * 1.5;
+        const line = cfg.fontSize.medium * 1.5;
         const stat = shared.getCurrentStat();
         this.child.add(new Label(text.stage, x, y, { align: 2, valign: 1 }));
         this.child.add(new Label(text.time, x, y + line, { align: 2, valign: 1 }));
@@ -1282,7 +1727,7 @@ class SceneClear extends Mono {//ステージクリア画面
         this.child.add(new Label(stat.time, x, y + line, { align: 2, valign: 1 }));
         this.child.add(new Label(stat.point, x, y + (line * 2), { align: 2, valign: 1 }));
         this.child.add(new Label(stat.ko, x, y + (line * 3), { align: 2, valign: 1 }));
-        const nextStage = new Label(text.nextStage, game.width * 0.5, game.height - (line * 2), { size: game.cfg.fontSize.medium, align: 1, valign: 1 })
+        const nextStage = new Label(text.nextStage, game.width * 0.5, game.height - (line * 2), { size: cfg.fontSize.medium, align: 1, valign: 1 })
         nextStage.color.blink(0.5);
         this.child.add(nextStage);
     }
@@ -1303,7 +1748,7 @@ class SceneHighscore extends Mono {//ハイスコア画面
         this.rank = rank;
         this.child.drawlayer = 'ui';
         if (this.isNewRecord) this.child.add(new Tofu().set(0, 0, game.width, game.height, 'black', 0.5));
-        this.child.add(new Label(text.highscore, game.width * 0.5, game.height * 0.15, { size: game.cfg.fontSize.medium, color: game.cfg.theme.highlite, align: 1, valign: 1 }));
+        this.child.add(new Label(text.highscore, game.width * 0.5, game.height * 0.15, { size: cfg.fontSize.medium, color: cfg.theme.highlite, align: 1, valign: 1 }));
         this.child.add(this.scoreContainer = new Mono(Child));
         this._applyScores();
         if (!this.isNewRecord) this.child.add(this.explanation1 = new Label(text.highscore_clear_key, game.width * 0.5, game.height, { align: 1, valign: 2 }));
@@ -1315,10 +1760,10 @@ class SceneHighscore extends Mono {//ハイスコア画面
         const y = game.height * 0.25;
         for (let i = 0; i < shared.highscores.length; i++) {
             const score = shared.highscores[i];
-            const labelRank = new Label(`${(i + 1).toString().padStart(2, ' ')}:`, rankX, y + i * (game.cfg.fontSize.medium * 1.125), { valign: 1 });
-            const labelScore = new Label(`${score.point}`, scoreX, y + i * (game.cfg.fontSize.medium * 1.125), { align: 2, valign: 1 });
+            const labelRank = new Label(`${(i + 1).toString().padStart(2, ' ')}:`, rankX, y + i * (cfg.fontSize.medium * 1.125), { valign: 1 });
+            const labelScore = new Label(`${score.point}`, scoreX, y + i * (cfg.fontSize.medium * 1.125), { align: 2, valign: 1 });
             if (this.isNewRecord && i === this.rank) {
-                labelRank.color.setColor(game.cfg.theme.highlite);
+                labelRank.color.setColor(cfg.theme.highlite);
                 labelRank.color.blink(0.5);
             }
             this.scoreContainer.child.add(labelRank);
@@ -1335,7 +1780,7 @@ class SceneHighscore extends Mono {//ハイスコア画面
                 switch (yield* new SceneConfirm(text.highscore_clear_confirm, [text.done, text.cancel], { isPause: true, isDialog: true }).coroDefault(1)) {
                     case text.done:
                         shared.clearHighscore();
-                        shared.save(game.cfg.saveData.name);
+                        shared.save(cfg.saveData.name);
                         this._applyScores();
                         break;
                 }
@@ -1363,13 +1808,13 @@ class SceneCredit extends Mono {//クレジット画面
         return;
     }
     *coroScroll() {
-        const header = new Label(text.credit, game.width * 0.5, 0, { size: game.cfg.fontSize.medium, color: game.cfg.theme.highlite, align: 1, valign: 1 });
+        const header = new Label(text.credit, game.width * 0.5, 0, { size: cfg.fontSize.medium, color: cfg.theme.highlite, align: 1, valign: 1 });
         header.addMix(CreditScroll);
         header.creditscroll.set();
         this.child.add(header);
         yield* waitForTime(1);
         for (const staff of text.staff) {
-            const label = new Label(staff, game.width * 0.5, 0, { size: game.cfg.fontSize.normal, align: 1, valign: 1 });
+            const label = new Label(staff, game.width * 0.5, 0, { size: cfg.fontSize.normal, align: 1, valign: 1 });
             label.addMix(CreditScroll);
             label.creditscroll.set();
             this.child.add(label);
@@ -1410,9 +1855,9 @@ const text = {//テキスト
         'テストプレイ　はぐれヨウマ',
     ]
 };
-class CharacterData {//キャラデータ
+class CharaData {//キャラデータ
     static type = { player: 'player', baddie: 'baddie', bomb: 'bomb' };
-    constructor(type, name, char, color, size, hp, point, options = {}) {
+    constructor(type, name, char, color, size, hp, point, { defeatEffect = undefined, isOutOfScreenToRemove = true, routine = '', forms = undefined, bomb = 0 } = {}) {
         this.type = type;
         this.name = name;
         this.char = char;
@@ -1420,8 +1865,6 @@ class CharacterData {//キャラデータ
         this.size = size;
         this.hp = hp;
         this.point = point;
-
-        const { defeatEffect = undefined, isOutOfScreenToRemove = true, routine = '', forms = undefined, bomb = 0 } = options;
         this.defeatEffect = defeatEffect;
         this.isOutOfScreenToRemove = isOutOfScreenToRemove;
         this.routine = routine;
@@ -1430,6 +1873,14 @@ class CharacterData {//キャラデータ
     }
 }
 const datas = {//ゲームデータ
+    color: {
+        text:'#ffffff',
+        texthighlight:'#EFC440',
+        highsky: '#62609b',
+        lowsky: '#a5899d',
+        cloud:'#AE95D4',
+        moon: '#E0BCD8'
+    },
     unit: {
         defaultSpawnEffect: 'star',
         defaultDefeatEffect: 'star2',
@@ -1464,23 +1915,25 @@ const datas = {//ゲームデータ
         }
     },
     baddies: {
-        obake: new CharacterData(CharacterData.type.baddie, 'obake', EMOJI.GHOST, '#F5F5F5', 40, 5, 200, { defeatEffect: 'star2', routine: 'zako4', forms: ['randomtop'] }),
-        crow: new CharacterData(CharacterData.type.baddie, 'crow', EMOJI.CROW, '#1A1A1A', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako1', forms: ['v', 'delta', 'tri', 'inverttri', 'trail', 'abrest', 'randomtop'] }),
-        dove: new CharacterData(CharacterData.type.baddie, 'dove', EMOJI.DOVE, '#1A1A1A', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako2', forms: ['left', 'right', 'randomside'] }),
-        bigcrow: new CharacterData(CharacterData.type.baddie, 'bigcrow', EMOJI.CROW, '#1A1A1A', 80, 20, 100, { defeatEffect: 'feather', routine: 'zako3', forms: ['topsingle'] }),
-        greatcrow: new CharacterData(CharacterData.type.baddie, 'greatcrow', EMOJI.CROW, '##1A1A1A', 120, 300, 5000, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss1', forms: ['topsingle'] }),
-        torimakicrow: new CharacterData(CharacterData.type.baddie, 'torimakicrow', EMOJI.CROW, '##1A1A1A', 40, 10, 200, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss1torimaki', forms: ['within'] }),
-        greatdove: new CharacterData(CharacterData.type.baddie, 'greatdove', EMOJI.DOVE, '##1A1A1A', 120, 300, 5000, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss2', forms: ['topsingle'] }),
+        obake: new CharaData(CharaData.type.baddie, 'obake', EMOJI.GHOST, '#F5F5F5', 40, 5, 200, { defeatEffect: 'star2', routine: 'zako4', forms: ['randomtop'] }),
+        crow: new CharaData(CharaData.type.baddie, 'crow', EMOJI.CROW, '#1A1A1A', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako1', forms: ['v', 'delta', 'tri', 'inverttri', 'trail', 'abrest', 'randomtop'] }),
+        dove: new CharaData(CharaData.type.baddie, 'dove', EMOJI.DOVE, '#1A1A1A', 40, 5, 100, { defeatEffect: 'feather', routine: 'zako2', forms: ['left', 'right', 'randomside'] }),
+        bigcrow: new CharaData(CharaData.type.baddie, 'bigcrow', EMOJI.CROW, '#1A1A1A', 80, 20, 100, { defeatEffect: 'feather', routine: 'zako3', forms: ['topsingle'] }),
+        greatcrow: new CharaData(CharaData.type.baddie, 'greatcrow', EMOJI.CROW, '#1A1A1A', 120, 200, 5000, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss1', forms: ['topsingle'] }),
+        torimakicrow: new CharaData(CharaData.type.baddie, 'torimakicrow', EMOJI.CROW, '#1A1A1A', 40, 10, 200, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss1torimaki', forms: ['within'] }),
+        greatdove: new CharaData(CharaData.type.baddie, 'greatdove', EMOJI.DOVE, '#1A1A1A', 120, 200, 5000, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss2', forms: ['topsingle'] }),
+        torimakidove: new CharaData(CharaData.type.baddie, 'torimakidove', EMOJI.DOVE, '#1A1A1A', 40, 10, 200, { defeatEffect: 'feather', isOutOfScreenToRemove: false, routine: 'boss2torimaki', forms: ['within'] }),
     },
+    bosses: ['greatcrow', 'greatdove'],
     player: {
-        data: new CharacterData(CharacterData.type.player, 'player', EMOJI.CAT, 'black', 40, 2, 0, { defeatEffect: 'star2' }),
+        data: new CharaData(CharaData.type.player, 'player', EMOJI.CAT, 'black', 40, 2, 0, { defeatEffect: 'star2' }),
         moveSpeed: 300,
         bulletSpeed: 600,
         firelate: 1 / 20,
         damagedInvincibilityTime: 1,
     },
     items: {
-        bomb: new CharacterData(CharacterData.type.bomb, 'bomb', EMOJI.BOMB, 'black', 20, 0, 1000, { defeatEffect: 'star2', routine: 'item1', bomb: 1 }),
+        bomb: new CharaData(CharaData.type.bomb, 'bomb', EMOJI.BOMB, 'black', 20, 0, 1000, { defeatEffect: 'star2', routine: 'item1', bomb: 1 }),
     },
     game: {
         highscoreListMax: 10,
@@ -1541,7 +1994,8 @@ class sharedData {//共用データ
 }
 const shared = new sharedData()//共用データ変数
 //ゲーム実行
-game.start(() => {
+const game = new Game();//ゲームのインスタンス
+game.run(() => {
     //キー割り当て
     game.input.keybind('z', 'z', { button: 1 });
     game.input.keybind('x', 'x', { button: 0 });
@@ -1549,17 +2003,16 @@ game.start(() => {
     //背景
     const ctx = game.layers.get('bg').getContext();
     const grad = ctx.createLinearGradient(0, 0, 0, game.height);
-    grad.addColorStop(0, "#124085");
+    grad.addColorStop(0, datas.color.highsky);
     //grad.addColorStop(0.95,"#FF7518");
-    grad.addColorStop(1, "#3A85B8");
+    grad.addColorStop(1, datas.color.lowsky);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, game.width, game.height);
     //レイヤー
-    game.layers.add(['effect', 'ui']);
+    game.layers.add('effect');
     game.layers.get('effect').enableBlur();
-    game.layers.get('effect').enableBloom();
     //セーブデータのロード
-    shared.load(game.cfg.saveData.name);
-    //タイトルシーンの表示
-    game.pushScene(new SceneTitle());
+    shared.load(cfg.saveData.name);
+    //タイトル画面の表示
+    game.setCoroutine(new SceneTitle().coroDefault());
 });

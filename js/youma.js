@@ -4,7 +4,8 @@
 //by はぐれヨウマ
 'use strict';
 
-import Config from './config.json' with {type: 'json'};
+import cfg from './config.json' with {type: 'json'};
+export { cfg };
 //Font Awsomeの文字コード
 export const EMOJI = Object.freeze({
     GHOST: 'f6e2',
@@ -21,14 +22,15 @@ export const EMOJI = Object.freeze({
     BOMB: 'f1e2',
     CLOUD: 'f0c2',
 });
-class Game {//エンジン本体
+export class Game {//エンジン本体
+    static delta=0;
+    static layers=undefined;
+    static get width(){}
     constructor() {
-        this.cfg = Config;
-        document.body.style.backgroundColor = this.cfg.theme.bg;
+        document.body.style.backgroundColor = cfg.theme.bg;
         this.asset = new AssetLoader();
-        this.screen = new Screen(this.cfg.screenSize.width, this.cfg.screenSize.height);
-        this.layers = new Layers(this.screen);;
-        this.input = new Input(this.vpad = new VirtualPad(this.screen, this.cfg.vpad));
+        this.layers = new Layers(this.screen = new Screen());
+        this.input = new Input(this.vpad = new VirtualPad(this.screen));
         this.root = new Mono(Coro, Child);
         this.time = this.delta = 0;
         this.fpsBuffer = new Array(60).fill(0);
@@ -37,7 +39,7 @@ class Game {//エンジン本体
     }
     get width() { return this.screen.width; }
     get height() { return this.screen.height; }
-    async start(create, assets = []) {
+    async run(create, assets = []) {
         if (!await this.asset.load(assets)) return;
         create?.();
         this.time = performance.now();
@@ -45,7 +47,7 @@ class Game {//エンジン本体
     }
     _mainloop() {
         const now = performance.now();
-        this.delta = Math.min((now - this.time) / 1000.0, 1 / 60);
+        this.delta = Math.min((now - this.time) / 1000.0, 1 / 60);//最低フレームレートは暫定
         this.time = now;
 
         this.fpsBuffer[this.fpsIndex] = this.delta;
@@ -57,7 +59,7 @@ class Game {//エンジン本体
 
         this.layers.before();
         this.root.baseDraw(this.layers.get('main').getContext());
-        this.layers.after();
+        this.layers.after(this.screen);
 
         requestAnimationFrame(this._mainloop.bind(this));
     }
@@ -93,7 +95,6 @@ class AssetLoader {//アセット読み込み
         });
     }
     async loadAssets(assets) {
-        const fonts = new Set([game.cfg.font.default, game.cfg.font.emoji]);
         await Promise.all(assets.map(asset => {
             if (typeof asset === 'string') {
                 switch (true) {
@@ -114,6 +115,7 @@ class AssetLoader {//アセット読み込み
                 fonts.add(asset);
             }
         }));
+        const fonts = new Set([cfg.font.default, cfg.font.emoji]);
         if (fonts.size) {
             return new Promise((resolve, reject) => {
                 const customs = [...fonts].filter((f) => f.custom);
@@ -131,7 +133,9 @@ class AssetLoader {//アセット読み込み
     }
 }
 class Screen {//画面
-    constructor(width, height) {
+    constructor() {
+        const width = cfg.screenSize.width;
+        const height = cfg.screenSize.height;
         this.rect = new Rect(0, 0, width, height);
         this.rangeRect = new Rect(0, 0, width, height);
         this.setRange(width);
@@ -139,12 +143,21 @@ class Screen {//画面
         this.resizeCallback = [];
         window.addEventListener('resize', () => this.resize());
         this._createScreenDiv();
+        this._createScreenCanvas();
     }
     _createScreenDiv() {
         const div = this.div = document.createElement('div');
-        div.className = 'screen';
-        div.style.cssText += `position: fixed; display: block; padding: 0; margin: 0; top: 0;`;
+        div.className = 'screenDiv';
+        div.style.cssText += `position: fixed; display: block; padding: 0; margin: 0; top: 0; left: 0; width: 100%; height: 100%;`;
         document.body.appendChild(div);
+    }
+    _createScreenCanvas() {
+        const canvas = this.canvas = document.createElement('canvas');
+        canvas.className = 'screenCanvas';
+        canvas.width = this.width;
+        canvas.height = this.height;
+        canvas.style.cssText += 'position: absolute; top: 0;';
+        this.div.appendChild(canvas);
     }
     addResizeCallback(func) {
         this.resizeCallback.push(func);
@@ -158,6 +171,7 @@ class Screen {//画面
             this.viewWidth = Math.round(this.rect.width * scale);
             this.viewHeight = Math.round(this.rect.height * scale);
         }
+        this.canvas.style.cssText += `width:${this.viewWidth}px;height:${this.viewHeight}px; ${Util.isTouch() ? 'left:50%;transform:translate(-50%,0);' : 'left:0;transform:translate(0,0);'} `;
         for (const resize of this.resizeCallback) resize(this.viewWidth, this.viewHeight);
     }
     get width() { return this.rect.width; };
@@ -172,18 +186,12 @@ class Screen {//画面
 class Layers {//レイヤーのコンテナ
     constructor(screen) {
         this.layersMap = new Map();
-        this.layers = [];
+        this.bases = [];
+        this.overlays = [];
         this.width = screen.width;
         this.height = screen.height;
-        this._createContainer(screen.div);
         this._createDefaultLayer();
-        screen.addResizeCallback((w, h) => this.resize(w, h));
-    }
-    _createContainer(screenDiv) {
-        const div = this.div = document.createElement('div');
-        div.className = 'game-container';
-        div.style.cssText += 'position: fixed; display: block; padding: 0; margin: 0; top: 0;';
-        screenDiv.appendChild(div);
+        this._createBloomBuffer();
     }
     _createDefaultLayer() {
         this.add('bg');
@@ -193,31 +201,54 @@ class Layers {//レイヤーのコンテナ
         bgctx.fillStyle = 'black';
         bgctx.fillRect(0, 0, this.width, this.height);
         this.add('main');
+        this.add('ui', { isOverlay: true });
     }
-    resize(viewWidth, viewHeight) {
-        this.div.style.cssText += `width:${viewWidth}px;height:${viewHeight}px; ${Util.isTouch() ? 'left:50%;transform:translate(-50%,0);' : 'left:0;transform:translate(0,0);'} `;
+    _createBloomBuffer() {
+        const canvas = this.bloom = document.createElement('canvas');
+        canvas.className = 'bloomBuffer';
+        canvas.width = this.width;
+        canvas.height = this.height;
     }
-    before() { for (const layer of this.layers) layer.before(); }
-    after() { for (const layer of this.layers) layer.after(); }
-    add(names, insertBefore = '') {
-        if (!Array.isArray(names)) {
-            this._create(names, insertBefore);
-            return;
+    before() {
+        for (const layer of this.bases) layer.before();
+        for (const layer of this.overlays) layer.before();
+    }
+    after(screen) {
+        const ctx = screen.canvas.getContext('2d');
+        for (const layer of this.bases) {
+            layer.after();
+            ctx.drawImage(layer.canvas, 0, 0);
         }
-        for (const name of names) this._create(name, insertBefore);
+        if (cfg.graphics.bloom) this._drawBloom(screen.canvas, ctx);//ブルームエフェクト
+        for (const layer of this.overlays) {
+            layer.after();
+            ctx.drawImage(layer.canvas, 0, 0);
+        }
     }
-    _create(name, insertBefore) {
+    _drawBloom(canvas, ctx) {
+        const bloomCtx = this.bloom.getContext('2d');
+        bloomCtx.clearRect(0, 0, this.width, this.height);
+        bloomCtx.drawImage(canvas, 0, 0);
+        bloomCtx.filter = "blur(20px)";
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(this.bloom, 0, 0);
+        ctx.restore();
+    }
+    add(names, { insertBefore = '', isOverlay = false } = {}) {
+        for (const name of Array.isArray(names) ? names : [names]) this._create(name, insertBefore, isOverlay);
+    }
+    _create(name, insertBefore, isOverlay) {
+        const layers = isOverlay ? this.overlays : this.bases;
         const layer = new Layer(this.width, this.height, name);
         this.layersMap.set(name, layer);
-        let refIndex = this.layers.length;
-        let refCanvas = null;
+        let refIndex = layers.length;
         if (insertBefore.length > 0) {
             const refLayer = this.get(insertBefore);
-            refIndex = this.layers.indexOf(refLayer);
-            refCanvas = refLayer.canvas;
+            refIndex = layers.indexOf(refLayer);
         }
-        this.layers.splice(refIndex, 0, layer);
-        this.div.insertBefore(layer.canvas, refCanvas);
+        layers.splice(refIndex, 0, layer);
     }
     get(name) { return this.layersMap.get(name) };
 }
@@ -227,29 +258,19 @@ class Layer {//レイヤー
         canvas.className = name;
         canvas.width = width;
         canvas.height = height;
-        canvas.style.cssText += 'position: absolute; top: 0; left: 0; width: 100%; height: 100%;';
         this.isUpdate = true;
         this.blur = undefined;
         this.isPauseBlur = false;
-        this.bloom = undefined;
     }
     getContext() { return this.canvas.getContext('2d'); }
     getBlurContext() { return this.blur.getContext('2d'); }
-    getBloomContext() { return this.bloom.getContext('2d'); }
     clear() { return this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
     clearBlur() { return this.getBlurContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
-    clearBloom() { return this.getBloomContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
     enableBlur() {
         if (this.blur) return;
         const blur = this.blur = document.createElement('canvas');
         blur.width = this.canvas.width;
         blur.height = this.canvas.height;
-    }
-    enableBloom() {
-        if (this.bloom) return;
-        const bloom = this.bloom = document.createElement('canvas');
-        bloom.width = this.canvas.width;
-        bloom.height = this.canvas.height;
     }
     before() {
         if (!this.isUpdate) return;
@@ -267,21 +288,6 @@ class Layer {//レイヤー
             blurCtx.globalAlpha = 0.7;
             blurCtx.drawImage(this.canvas, 0, 0);
         }
-        if (this.bloom) {
-            const bloomCtx = this.getBloomContext();
-            bloomCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            bloomCtx.drawImage(this.canvas, 0, 0);
-            bloomCtx.filter = "blur(20px)";
-            const ctx = this.getContext();
-            ctx.save();
-            ctx.globalCompositeOperation = "lighter";
-            ctx.globalAlpha = 1;
-            ctx.drawImage(this.bloom, 0, 0);
-            ctx.drawImage(this.bloom, 0, 0);
-            ctx.drawImage(this.bloom, 0, 0);
-            ctx.restore();
-        }
-
     }
 }
 class Input {//入力
@@ -352,7 +358,7 @@ class Input {//入力
     isUp(name) { return !this.keys.get(name).current && this.keys.get(name).before; }
 }
 class VirtualPad {//仮想パッド
-    constructor(screen, vpadCfg) {
+    constructor(screen) {
         this.axes = [0, 0];
         this.buttons = new Array(4).fill(false);
         this.stickPointerId = null;
@@ -369,9 +375,9 @@ class VirtualPad {//仮想パッド
                 </div>
             </div>
         `);
-        const virtical = vpadCfg.virtical;
-        const buttonAreaSize = vpadCfg.buttonAreaSize;
-        const buttonSize = vpadCfg.buttonSize;
+        const virtical = cfg.vpad.virtical;
+        const buttonAreaSize = cfg.vpad.buttonAreaSize;
+        const buttonSize = cfg.vpad.buttonSize;
         document.head.insertAdjacentHTML('beforeend', `<style id="vpad-style">
             #vpad {
                 position:fixed;
@@ -531,6 +537,7 @@ export class Util {//小物
         if (r < 0) r += 2 * Math.PI;
         return r * Util.degree;
     }
+    static lineToDeg(x, y, x2, y2) { return Util.xyToDeg(x - x2, y - y2) }
     static degRotateXY(x, y, deg) {
         const rad = deg * Util.radian;
         return [Math.cos(rad) * x - Math.sin(rad) * y, Math.sin(rad) * x + Math.cos(rad) * y];
@@ -538,6 +545,7 @@ export class Util {//小物
     static distance = (x, y) => Math.sqrt(x * x + y * y);
     static normalizeXY(x, y) {
         const d = Util.distance(x, y);
+        if (d === 0) return [0, 0];
         return [x / d, y / d];
     }
     static xRotaRad = (x, y, rad) => Math.cos(rad) * x - Math.sin(rad) * y;
@@ -617,28 +625,34 @@ export class Mono {//ゲームオブジェクト
         this.remove = undefined;
         this.addMix(args);
     }
-    addMix(mixCtor, isFirst) {
+    addMix(mixCtor, target, isAfter = false) {
         const mixCtors = Util.isIterable(mixCtor) ? mixCtor : [mixCtor];
         for (const ctor of mixCtors) {
             const requiedMixCtors = Util.isIterable(ctor?.requires) ? ctor.requires : [ctor?.requires].filter(Boolean);
             for (const requiedMixCtor of requiedMixCtors) {
                 this._addMix(requiedMixCtor);
             }
-            this._addMix(ctor, isFirst);
+            this._addMix(ctor, target, isAfter);
         }
     }
-    _addMix(mixCtor, isFirst) {
+    _addMix(mixCtor, target, isAfter) {
         const name = mixCtor.name.toLowerCase();
         if (name in this) return;
         const mix = new mixCtor(this);
         mix.owner = this;
         this[name] = mix;
-        if (isFirst) {
+        if (target === 0) {
             this.mixs.unshift(mix);
+        } else if (target) {
+            this.mixs.splice(Math.max(this.mixs.indexOf(target) + isAfter, 0), 0, mix);
         } else {
             this.mixs.push(mix);
         }
     }
+    hide() { this.isExist = false; }
+    show() { this.isExist = true; }
+    pause() { this.isActive = false; }
+    resume() { this.isActive = true; }
     baseReset() {
         for (const mix of this.mixs) mix.reset?.();
         this.reset();
@@ -726,6 +740,34 @@ export function* waitForTimeOrFrag(time, func) {//指定した時間が経つか
     }
     return true;
 }
+export function* repeatPerSecond(rate, count, func) {//1秒あたりrateの回数で関数をCount回実行するまで待機
+    let rest = 0;
+    let exec = 0;
+    while (exec < count) {
+        rest += game.delta * rate;
+        while (rest >= 1 && exec < count) {
+            func();
+            exec++;
+            rest--;
+        }
+        yield undefined;
+    }
+    return true;
+}
+export function* repeatFor(seconds, count, func) {//指定の秒数かけて関数を指定した回数実行するまで待機
+    const interval = seconds / count;
+    let elaps = 0;
+    let exec = 0;
+    while (exec < count) {
+        elaps += game.delta;
+        while (exec < count && elaps >= interval * (exec + 1)) {
+            func();
+            exec++;
+        }
+        yield undefined;
+    }
+    return true;
+}
 export class Child {//子持ちコンポーネント
     static grave = new Set();
     static clean() {
@@ -767,6 +809,7 @@ export class Child {//子持ちコンポーネント
         obj.remove = () => {
             if (!obj.isExist) return;
             obj.isExist = false;
+            obj.isActive = true;
             obj.baseReset();
             this.reserves[name].push(obj.childIndex);
             this.liveCount--;
@@ -808,7 +851,7 @@ export class Color {//色コンポーネント
         this.reset();
     }
     reset() {
-        this.setColor(game.cfg.theme.text);
+        this.setColor(cfg.theme.text);
         this.alpha = this.baseAlpha = 1;
         this.func = undefined;
     }
@@ -880,7 +923,7 @@ export class Pos {//位置と大きさコンポーネント
         return this;
     }
     draw(ctx) {
-        if (!game.cfg.debug.drawPosSizeRect) return;
+        if (!cfg.debug.drawPosSizeRect) return;
         ctx.save();
         ctx.strokeStyle = 'red';
         ctx.globalAlpha = 1;
@@ -902,6 +945,7 @@ export class Pos {//位置と大きさコンポーネント
     get center() { return this.left + this.width * 0.5; }
     get middle() { return this.top + this.height * 0.5; }
     get rect() { return this._rect.set(this.left, this.top, this.width, this.height); }
+    get xyDeg() { return Util.xyToDeg(this.x, this.y); }
 }
 export class Move {//移動コンポーネント
     static requires = Pos;
@@ -986,6 +1030,37 @@ export class Move {//移動コンポーネント
     get isActive() { return this.ease.isActive; }
     get percentage() { return this.ease.percentage; }
 }
+export class Lissajous {
+    static requires = Pos;
+    constructor() {
+        this.reset();
+    }
+    reset() {
+        this.a = this.b = this.x = this.y = this.cycle = this.t = this.phase = this.width = this.height = 0;
+        this.enable = false;
+    }
+    set(a, b, width, height, { cycle = 1, phase = 0 } = {}) {
+        this.reset();
+        this.a = a;
+        this.b = b;
+        this.width = width;
+        this.height = height;
+        this.cycle = cycle;
+        this.phase = phase / cycle * Math.PI * 2;
+        this.enable = true;
+    }
+    update() {
+        if (!this.enable) return;
+        this.t += game.delta * (Math.PI * 2 / this.cycle);
+        const pos = this.owner.pos;
+        pos.x -= this.x;
+        pos.y -= this.y;
+        this.x = Math.sin(this.a * this.t + this.phase) * this.width;
+        this.y = Math.sin(this.b * this.t) * this.height;
+        pos.x += this.x;
+        pos.y += this.y;
+    }
+}
 export class Scale {//拡大縮小コンポーネント
     static requires = Pos;
     constructor() {
@@ -1063,6 +1138,7 @@ export class Ease {//イージング
         if (!this.isLoop && this.elaps >= 1) {
             this.time = 0;
             this.isDelta = this.endToDelta;
+            if (this.isDelta) return game.delta;
         }
         return (easingDif * this.range) + (Math.sign(easingDif) * this.ofs * addingTime);//結果を範囲内に収める
     }
@@ -1196,19 +1272,21 @@ export class Tofu extends Mono {//四角型描画
 export class Moji {//文字コンポーネント
     static requires = [Pos, Color];
     static sizeCache = new Map();
+    static imageCache = new Map();
     constructor() {
         this.reset();
     }
     reset() {
-        this.text = this.beforeText = this.fontStyle = this.sizeCacheKey = '';
-        this.textSplit = undefined;
+        this.text = this.beforeText = this.fontStyle = this.cacheKey = '';
+        this.textSplit = this.baselineCollects = undefined;
         this.weight = 'normal';
-        this.size = game.cfg.fontSize.normal;
-        this.font = game.cfg.font.default.name;
-        this.baseLine = 'middle';
+        this.size = cfg.fontSize.normal;
+        this.font = cfg.font.default.name;
+        this.imageCache = this.imageCacheBuffer = undefined;
     }
     set(text = '', x = this.owner.pos.x, y = this.owner.pos.y, options = {}) {
-        const { size = this.size, color = this.owner.color.value, font = this.font, weight = this.weight, align = this.owner.pos.align, valign = this.owner.pos.valign, angle = this.owner.pos.angle } = options;
+        const { size = this.size, color = this.owner.color.value, font = this.font, weight = this.weight, align = this.owner.pos.align, valign = this.owner.pos.valign, angle = this.owner.pos.angle, useImagecache
+            = false } = options;
         this.text = text;
         this.weight = weight;
         this.size = size;
@@ -1222,6 +1300,26 @@ export class Moji {//文字コンポーネント
         pos.valign = valign;
         pos.angle = angle;
         this.owner.color.setColor(color);
+        this.imageCache = this.imageCacheBuffer = undefined;
+        if (useImagecache) {
+            if (!Moji.imageCache.has(this.cacheKey)) {
+                const cache = this.imageCache = document.createElement('canvas');
+                const buf = this.imageCacheBuffer = document.createElement('canvas');
+                Moji.imageCache.set(this.cacheKey, [cache, buf]);
+                buf.width = cache.width = pos._width;
+                buf.height = cache.height = pos._height;
+                const ctx = cache.getContext('2d');
+                ctx.save();
+                this._applyContext(ctx);
+                this.owner.color.applyContext(ctx);
+                for (let i = 0; i < this.textSplit.length; i++) {
+                    ctx.fillText(this.textSplit[i], 0, (pos._height * 0.5) + this.baselineCollects[i] + (i * this.lineHeight));
+                }
+                ctx.restore();
+            } else {
+                [this.imageCache, this.imageCacheBuffer] = Moji.imageCache.get(this.cacheKey);
+            }
+        }
     }
     get lineSpace() { return this.size * 0.25; }
     get lineHeight() { return this.size + this.lineSpace; }
@@ -1230,38 +1328,54 @@ export class Moji {//文字コンポーネント
         const text = this.getText;
         if (text === this.beforeText) return;
         this.beforeText = text;
-        this.sizeCacheKey = text + this.fontStyle;
+        this.cacheKey = text + this.fontStyle;
         this.textSplit = text.split('\n');
-        let textWidth = 0, textHeight = 0;
-        let textSize = Moji.sizeCache.get(this.sizeCacheKey);
+        let textSize = Moji.sizeCache.get(this.cacheKey);
         if (!textSize) {
+            let textWidth = 0, textHeight = 0, baselineCollects = [];
             const ctx = game.layers.get('main').getContext();
             this._applyContext(ctx);
-            for (const line of this.textSplit) {
-                textWidth = Math.max(ctx.measureText(line).width, textWidth);
+            for (let i = 0; i < this.textSplit.length; i++) {
+                if (i > 0) textHeight = this.lineHeight * i;
+                const line = this.textSplit[i];
+                const m = ctx.measureText(line);
+                textWidth = Math.max(m.width, textWidth);
+                textHeight += m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+                baselineCollects[i] = (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) * 0.5;
             }
-            textHeight = this.lineHeight * this.textSplit.length - this.lineSpace;
-            textSize = { width: textWidth, height: textHeight };
-            Moji.sizeCache.set(this.sizeCacheKey, textSize);
+            textSize = { width: textWidth, height: textHeight, baselineCollects: baselineCollects };
+            Moji.sizeCache.set(this.cacheKey, textSize);
         }
         const pos = this.owner.pos;
         pos.width = textSize.width;
         pos.height = textSize.height;
+        this.baselineCollects = textSize.baselineCollects;
     }
     _applyContext(ctx) {
         ctx.font = this.fontStyle;
-        ctx.textBaseline = this.baseLine;
     }
     draw(ctx) {
         ctx.save();
         if (typeof this.text === 'function') this._applyText();
-        this._applyContext(ctx);
         const pos = this.owner.pos;
         ctx.translate(pos.center, pos.middle);
         ctx.rotate(pos.angle * Util.radian);
+        ctx.scale(pos.scaleX, pos.scaleY);
         this.owner.color.applyContext(ctx);
-        for (let i = 0; i < this.textSplit.length; i++) {
-            ctx.fillText(this.textSplit[i], -(pos.width * 0.5), -(pos.height * 0.5) + (this.size * 0.5) + (i * this.lineHeight));
+        if (!this.imageCache) {
+            this._applyContext(ctx);
+            for (let i = 0; i < this.textSplit.length; i++) {
+                ctx.fillText(this.textSplit[i], -(pos._width * 0.5), (this.baselineCollects[i] + (i * this.lineHeight)));
+            }
+        } else {
+            const bufCtx = this.imageCacheBuffer.getContext('2d');
+            bufCtx.clearRect(0, 0, pos.width, pos.height);
+            bufCtx.globalCompositeOperation = 'source-over';
+            bufCtx.drawImage(this.imageCache, 0, 0);
+            bufCtx.globalCompositeOperation = 'source-atop';
+            bufCtx.fillStyle = this.owner.color.value;
+            bufCtx.fillRect(0, 0, pos.width, pos.height);
+            ctx.drawImage(this.imageCacheBuffer, -(pos._width * 0.5), -(pos._height * 0.5));
         }
         ctx.restore();
     }
@@ -1313,7 +1427,7 @@ export class Particle extends Mono {//パーティクル
             }
             if (emoji) {
                 t = this.child.pool(Particle.MojiParticleName);
-                t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: game.cfg.font.emoji.name, align: 1, valign: 1 });
+                t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
                 t.pos.angle = angle;
                 if (isRandomAngle) t.pos.angle = (t.pos.angle + Util.rand(359)) % 360;
                 t.move.rotate = rotate;
@@ -1366,55 +1480,4 @@ export class Watch extends Mono {//変数の値を表示
         const l = this.child.pool('label');
         l.moji.set(watch, 2, this.pos.y + ((this.child.liveCount - 1) * l.moji.size * 1.5));
     }
-}
-export const game = new Game();//ゲームのインスタンス
-//以下はgameに依存
-export class Menu extends Mono {//メニュー表示
-    constructor(x, y, size, { icon = EMOJI.CAT, align = 1, color = game.cfg.theme.text, highlite = game.cfg.theme.highlite, isEnableCancel = false } = {}) {
-        super(Pos, Child);
-        this.pos.x = x;
-        this.pos.y = y;
-        this.pos.align = align;
-        this.size = size;
-        this.index = 0;
-        this.count = 0;
-        this.color = color;
-        this.highlite = highlite;
-        this.isEnableCancel = isEnableCancel;
-        this.child.add(this.curL = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: game.cfg.font.emoji.name, align: 2, valign: 1 }));
-        this.child.add(this.curR = new Label(Util.parseUnicode(icon), 0, 0, { size: this.size, color: this.highlite, font: game.cfg.font.emoji.name, valign: 1 }));
-        this.indexOffset = this.child.objs.length;
-    }
-    add(text) {
-        this.child.add(new Label(text, this.pos.x, this.pos.y + this.size * 1.5 * (this.count), { size: this.size, color: this.color, align: this.pos.align, valign: 1 }));
-        this.count++;
-    }
-    *coroSelect(newIndex = this.index) {
-        this.moveIndex(newIndex);
-        while (true) {
-            yield undefined;
-            yield* this.move('up', this.count - 1);
-            yield* this.move('down', 1);
-            if (game.input.isPress('z')) return this.child.objs[this.index + this.indexOffset].moji.text;
-            if (this.isEnableCancel && game.input.isPress('x')) return undefined;
-        }
-    }
-    *move(key, direction) {
-        if (!game.input.isDown(key)) return;
-        if (this.count > 0) this.moveIndex((this.index + direction) % (this.count));
-        yield* waitForTimeOrFrag(game.input.isPress(key) ? game.cfg.input.repeatWaitFirst : game.cfg.input.repeatWait, () => game.input.isUp(key) || game.input.isPress('z') || (this.isEnableCancel && game.input.isPress('x')));
-    }
-    moveIndex(newIndex) {
-        this.child.objs[this.index + this.indexOffset].color.setColor(this.color);
-        this.index = newIndex;
-        const item = this.child.objs[newIndex + this.indexOffset];
-        item.color.setColor(this.highlite);
-        const w = item.pos.width;
-        const x = (w * 0.5) * this.pos.align;
-        this.curL.pos.x = item.pos.x - x;
-        this.curL.pos.y = item.pos.y;
-        this.curR.pos.x = item.pos.x - x + w;
-        this.curR.pos.y = item.pos.y;
-    }
-    current = () => this.index === -1 ? undefined : this.child.objs[this.index + this.indexOffset].moji.text;
 }

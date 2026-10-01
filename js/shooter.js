@@ -519,7 +519,7 @@ class Baddie extends Mono {//敵キャラ
         zako2: function* (user, pattern, bullets, scene) {
             const moveSpeed = 100;
             const shot1 = function* () {
-                bullets.multiWay(user.pos.x, user.pos.y, { count: 2, color:  datas.color.bullet.enemyNormal1});
+                bullets.multiWay(user.pos.x, user.pos.y, { count: 2, color: datas.color.bullet.enemyNormal1 });
                 yield* waitForTime(2);
             };
             const spawnType = user.whichSpawnType();
@@ -552,12 +552,12 @@ class Baddie extends Mono {//敵キャラ
                 if (r > 50) {
                     const deg = Util.xyToDeg(scene.player.pos.x - x, scene.player.pos.y - y);
                     for (let i = 0; i < 1; i++) {
-                        bullets.multiWay(x, y, { deg, count: 5, color:  datas.color.bullet.enemyAim });
+                        bullets.multiWay(x, y, { deg, count: 5, color: datas.color.bullet.enemyAim });
                         yield* waitForTime(0.2);
                     }
                 } else {
                     for (let i = 0; i < 1; i++) {
-                        bullets.multiWay(x, y, { count: 5, color:  datas.color.bullet.enemyNormal1 });
+                        bullets.multiWay(x, y, { count: 5, color: datas.color.bullet.enemyNormal1 });
                         yield* waitForTime(0.2);
                     }
                 }
@@ -1157,11 +1157,53 @@ class BombCarrier extends Mono {
         bomb.set(x, y);
     }
 }
+class BgCloud extends Mono {
+    constructor() {
+        super(Coro, Child);
+        this.child.drawlayer = 'cloud';
+        this.child.addCreator('cloud', () => this._creator());
+    }
+    _creator() {
+        const deco = new Mono(Move, Moji);
+        deco.update = () => {
+            if (deco.pos.top > Game.height) {
+                deco.remove();
+            }
+        };
+        return deco;
+    }
+    Run() {
+        this.child.removeAll();
+        this.coro.reset();
+        for (let i = 0; i < 5; i++) {
+            this._createCloud(true);
+        }
+        this.coro.start(this._coroCloud());
+    }
+    _createCloud(isFirst) {
+        const sizeMax = Game.width * 0.5;
+        const sizeMin = sizeMax * 0.2;
+        const color = datas.color.cloud;
+        const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1.75);
+        const x = Game.width * 0.5 + (Util.rand((Game.width + size) * 0.5, size) * (Util.rand(1, 0) ? 1 : -1));
+        const y = -size + (isFirst ? Util.rand(Game.height) : 0);
+        const scrollSpeed = size * 1.5;
+        const c = this.child.pool('cloud');
+        c.moji.set(Util.parseUnicode(EMOJI.CLOUD), x, y, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
+        c.color.filter = `brightness(${1 + 0.2 * Util.normalize(sizeMax, sizeMin, size)})`;
+        c.move.set(0, scrollSpeed);
+    }
+    * _coroCloud() {
+        while (true) {
+            this._createCloud();
+            yield* waitForTime(Util.rand(2, 1));
+        }
+    }
+}
 class BgDeco extends Mono {
     constructor() {
         super(Coro, Child);
         this.child.addCreator('stars', () => this._decoCreator());
-        this.child.addCreator('cloud', () => this._decoCreator());
         this.child.addCreator('fullmoon', () => this._fullmoonCreator());
     }
     _decoCreator() {
@@ -1179,31 +1221,24 @@ class BgDeco extends Mono {
     Run() {
         this.child.removeAll();
         this.coro.reset();
-        for (let i = 0; i < 120; i++) {
+        for (let i = 0; i < 60; i++) {
             this._createStarfall(true);
         }
-        for (let i = 0; i < 5; i++) {
-            this._createCloud(true);
-        }
         this.coro.start(this._coroStars());
-        this.coro.start(this._coroCloud());
     }
     _createStar(x, y, size) {
         const color = '#ffffff';
         const star = this.child.pool('stars');
         star.moji.set(Util.parseUnicode(EMOJI.STAR), x, y, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
-        star.color.setAlpha(1);
+        star.color.setAlpha(0.5);
         return star;
     }
     _createStarfall(isFirst = false) {
-        const sizeMax = 10;
-        const sizeMin = 2;
-        const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1);
+        const size = Util.lerp(10, 1, Util.randF() ** 1);
         const x = Util.rand(Game.width, 0);
         const y = -size + (isFirst ? Util.rand(Game.height) : 0);
         const star = this._createStar(x, y, size);
-        const fallSpeed = size * 5;
-        star.move.set(0, fallSpeed);
+        star.move.set(0, size * 5);
     }
     _createShootingStar() {
         const size = 10;
@@ -1215,31 +1250,22 @@ class BgDeco extends Mono {
         star.move.set(Util.degToX(deg) * speed, Util.degToY(deg) * speed);
         star.move.setRotate(540);
     }
+    *_coroMilkyway() {
+        for (let i = 0; i < 200; i++) {
+            const size = Util.lerp(10, 1, Util.randF() ** 1);
+            const x = Util.rand(Game.width, 0);
+            const y = -(size + (x * 0.5));
+            const star = this._createStar(x, y, size);
+            star.move.set(0, 25);
+            yield* waitForTime(0.04);
+        }
+    }
     * _coroStars() {
         while (true) {
             if (Util.rand(100) < 5) this._createShootingStar();
             this._createStarfall();
-            yield* waitForTime(0.25);
-        }
-    }
-    _createCloud(isFirst) {
-        const sizeMax = Game.width * 0.5;
-        const sizeMin = sizeMax * 0.2;
-        const color = datas.color.cloud;
-        const size = Util.lerp(sizeMax, sizeMin, Util.randF() ** 1.75);
-        const x = Game.width * 0.5 + (Util.rand((Game.width + size) * 0.5, size) * (Util.rand(1, 0) ? 1 : -1));
-        const y = -size + (isFirst ? Util.rand(Game.height) : 0);
-        const scrollSpeed = size * 1.5;
-        const c = this.child.pool('cloud');
-        c.moji.set(Util.parseUnicode(EMOJI.CLOUD), x, y, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
-        //c.color.setAlpha(0.5 + 0.25 * Util.normalize(sizeMax, sizeMin, size));
-        c.color.filter=`brightness(${1+ 0.2* Util.normalize(sizeMax, sizeMin, size)})`;
-        c.move.set(0, scrollSpeed);
-    }
-    * _coroCloud() {
-        while (true) {
-            this._createCloud();
-            yield* waitForTime(Util.rand(2, 1));
+            if (Util.rand(100) < 3) yield* this._coroMilkyway();
+            yield* waitForTime(0.5);
         }
     }
     _createFullMoon() {
@@ -1376,6 +1402,7 @@ class SceneTitle extends Mono {//タイトル画面
         //ゲームの初期化
         this.init();
         //背景
+        this.child.add(this.cloud = new BgCloud());
         this.child.add(this.bg = new BgDeco());
         //タイトル
         this.child.add(this.title = new Title());
@@ -1394,6 +1421,7 @@ class SceneTitle extends Mono {//タイトル画面
         Game.input.keybind('x', 'x', { button: 0 });
         Game.input.keybind('c', 'c', { button: 2 });
         //レイヤー
+        Game.layers.add('cloud', { isBg: true });
         Game.layers.add('effect');
         Game.layers.get('effect').enableBlur();
         //セーブデータのロード
@@ -1409,6 +1437,7 @@ class SceneTitle extends Mono {//タイトル画面
     }
     *coroDefault() {
         Game.pushScene(this);
+        this.cloud.Run();
         this.bg.Run();
         this.presskey.color.blink(0.5);
         while (true) {
@@ -1475,6 +1504,7 @@ class ScenePlay extends Mono {//プレイ画面
         this.bossMode = false;
         this.spawner = new Spawner(this);
         //背景
+        this.child.add(this.cloud = new BgCloud());
         this.child.add(this.background = new BgDeco());
         //ボム
         this.child.add(this.playerbomb = new BombCarrier());
@@ -1713,6 +1743,7 @@ class ScenePlay extends Mono {//プレイ画面
     resetStage() {
         this.isClear = false;
         this.extendedCount = (Math.floor(shared.playdata.total.point / datas.game.extendedScore) + 1) * datas.game.extendedScore;
+        this.cloud.Run();
         this.background.Run();
         this.playerbomb.child.removeAll();
         this.playerSpawn();
@@ -1932,26 +1963,26 @@ class CharaData {//キャラデータ
         this.bomb = bomb;
     }
 }
-const color= {
-        text: '#F4EEF7',
-        texthighlight: '#ffd417',
-        highsky: '#8581D0',
-        lowsky: '#E6C4DC',
-        cloud: '#AE95D4',
-        moon: '#E0BCD8',
-        chara:{
-            black:'#322846',
-            yellow:'#ffd417'
-        },
-        bullet: {
-            PlayerNormal: '#8FE3E8',
-            PlayerPower1: '#8FE3E8',
-            enemyNormal1: '#E8D06A',
-            enemyNormal2: '#FF9A5A',
-            enemyAim: '#D83C5E',
-            enemyGuided: '#FFF7DF'
-        }
-    };
+const color = {
+    text: '#F4EEF7',
+    texthighlight: '#ffd417',
+    highsky: '#8581D0',
+    lowsky: '#E6C4DC',
+    cloud: '#BBA2DA',
+    moon: '#E0BCD8',
+    chara: {
+        black: '#322846',
+        yellow: '#ffd417'
+    },
+    bullet: {
+        PlayerNormal: '#8FE3E8',
+        PlayerPower1: '#8FE3E8',
+        enemyNormal1: '#E8D06A',
+        enemyNormal2: '#FF9A5A',
+        enemyAim: '#D83C5E',
+        enemyGuided: '#FFF7DF'
+    }
+};
 const datas = {//ゲームデータ
     color: color,
     unit: {

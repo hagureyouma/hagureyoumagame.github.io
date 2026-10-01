@@ -259,7 +259,7 @@ class Bloom {
             bufCanvas.height = Math.floor(bufHeight);
             const bufCtx = bufCanvas.getContext('2d');
             bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
-            bufCtx.globalAlpha = 0.25;
+            bufCtx.globalAlpha = 0.2;
             return bufCanvas;
         }
         for (let i = 0; i < 4; i++) {
@@ -267,7 +267,7 @@ class Bloom {
         }
     }
     apply(sourcelist, screenCanvas) {
-        if (cfg.graphics.bloom) {//
+        if (!cfg.graphics.bloom) {//
             for (const layer of sourcelist) {
                 layer.after();
                 const ctx = screenCanvas.getContext('2d');

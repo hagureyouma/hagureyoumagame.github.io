@@ -1,11 +1,57 @@
-// ヨウマぷちエンジン
-// Youma Petit Engine
-
-//by はぐれヨウマ
+//  ヨウマぷちエンジン
+//  Youma Petit Engine
+//
+//  Copyright (c) 2026 はぐれヨウマ
 'use strict';
-
-import cfg from './config.json' with {type: 'json'};
-export { cfg };
+//設定
+export const cfg = {
+    screenSize: {
+        width: 540,
+        height: 720
+    },
+    graphics: {
+        bloom: true
+    },
+    font: {
+        default: {
+            name: "Kaisei Decol",
+            url: "https://fonts.googleapis.com/css2?family=kaisei+decol&display=swap",
+            custom: false
+        },
+        emoji: {
+            name: "FontAwesome",
+            url: "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css",
+            custom: true
+        }
+    },
+    fontSize: {
+        small: 20,
+        normal: 30,
+        medium: 40,
+        large: 50,
+        big: 60
+    },
+    theme: {
+        bg: "#000000",
+        text: "#ffffff",
+        highlite: "#EFC440"
+    },
+    input: {
+        repeatWaitFirst: 0.25,
+        repeatWait: 0.125
+    },
+    vpad: {
+        virtical: 110,
+        buttonAreaSize: 160,
+        buttonSize: 60
+    },
+    saveData: {
+        name: "saveData"
+    },
+    debug: {
+        drawPosSizeRect: false
+    }
+}
 //Font Awsomeの文字コード
 export const EMOJI = Object.freeze({
     GHOST: 'f6e2',
@@ -19,58 +65,67 @@ export const EMOJI = Object.freeze({
     FEATHER: 'f52d',
     STAR: 'f005',
     HEART: 'f004',
+    GIFT: 'f06b',
     BOMB: 'f1e2',
     CLOUD: 'f0c2',
 });
 export class Game {//エンジン本体
-    static delta=0;
-    static layers=undefined;
-    static get width(){}
-    constructor() {
+    static async run(sceneCtor, width = 0, height = 0) {
         document.body.style.backgroundColor = cfg.theme.bg;
-        this.asset = new AssetLoader();
-        this.layers = new Layers(this.screen = new Screen());
-        this.input = new Input(this.vpad = new VirtualPad(this.screen));
-        this.root = new Mono(Coro, Child);
-        this.time = this.delta = 0;
-        this.fpsBuffer = new Array(60).fill(0);
-        this.fpsIndex = 0;
-        this.screen.resize();
+        if (width) cfg.screenSize.width = width;
+        if (height) cfg.screenSize.height = height;
+        Game.delta = 0;
+        Game.asset = new AssetLoader();
+        Game.screen = new Screen();
+        Game.layers = new Layers(Game.screen);
+        Game.vpad = new VirtualPad(Game.screen);
+        Game.input = new Input(Game.vpad);
+        Game.root = new Mono(Coro, Child);
+        Game.time = new Time();
+        Game.screen.resize();
+        if (!await Game.asset.load([cfg.font.default, cfg.font.emoji])) return;
+        Game.root.coro.start(new sceneCtor().coroDefault());
+        Game.time.init();
+        Game._mainloop();
     }
-    get width() { return this.screen.width; }
-    get height() { return this.screen.height; }
-    async run(create, assets = []) {
-        if (!await this.asset.load(assets)) return;
-        create?.();
+    static _mainloop() {
+        Game.delta = Game.time.getDelta();
+        Game.input.update();
+        Game.root.baseUpdate();
+        Child.clean();
+        Game.screen.clear();
+        Game.layers.before();
+        Game.root.baseDraw(Game.layers.get('main').getContext());
+        Game.layers.after(Game.screen);
+        requestAnimationFrame(Game._mainloop);
+    }
+    static get width() { return Game.screen.width };
+    static get height() { return Game.screen.height };
+    static pushScene(scene) { Game.root.child.add(scene); }
+    static popScene() { Game.root.child.pop(); }
+    static save(data, key) { Util.save(data, key); }
+    static load(key) { return Util.load(key); }
+    static deleteSave(key) { Util.deleteSave(key); }
+}
+class Time {//フレームタイム
+    constructor() {
+        this.time = this.fpsIndex = 0;
+        this.fpsBuffer = [];
+    }
+    init() {
         this.time = performance.now();
-        this._mainloop();
     }
-    _mainloop() {
+    getDelta() {
         const now = performance.now();
-        this.delta = Math.min((now - this.time) / 1000.0, 1 / 60);//最低フレームレートは暫定
+        const delta = Math.min((now - this.time) / 1000.0, 1 / 60);//最低フレームレートは暫定
         this.time = now;
 
-        this.fpsBuffer[this.fpsIndex] = this.delta;
+        this.fpsBuffer[this.fpsIndex] = delta;
         this.fpsIndex = (this.fpsIndex + 1) % 60;
-
-        this.input.update();
-        this.root.baseUpdate();
-        Child.clean();
-
-        this.layers.before();
-        this.root.baseDraw(this.layers.get('main').getContext());
-        this.layers.after(this.screen);
-
-        requestAnimationFrame(this._mainloop.bind(this));
+        return delta;
     }
-    pushScene(scene) { this.root.child.add(scene); }
-    popScene() { this.root.child.pop(); }
-    setCoroutine(coro) { this.root.coro.start(coro); }
     get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
     get sec() { return this.time / 1000; }
-    save(data, key) { Util.save(data, key); }
-    load(key) { return Util.load(key); }
-    deleteSave(key) { Util.deleteSave(key); }
 }
 class AssetLoader {//アセット読み込み
     async load(assets) {
@@ -95,6 +150,7 @@ class AssetLoader {//アセット読み込み
         });
     }
     async loadAssets(assets) {
+        const fonts = new Set();
         await Promise.all(assets.map(asset => {
             if (typeof asset === 'string') {
                 switch (true) {
@@ -115,7 +171,6 @@ class AssetLoader {//アセット読み込み
                 fonts.add(asset);
             }
         }));
-        const fonts = new Set([cfg.font.default, cfg.font.emoji]);
         if (fonts.size) {
             return new Promise((resolve, reject) => {
                 const customs = [...fonts].filter((f) => f.custom);
@@ -159,6 +214,7 @@ class Screen {//画面
         canvas.style.cssText += 'position: absolute; top: 0;';
         this.div.appendChild(canvas);
     }
+    clear() { this.canvas.getContext('2d').clearRect(0, 0, this.width, this.height); }
     addResizeCallback(func) {
         this.resizeCallback.push(func);
     }
@@ -183,18 +239,76 @@ class Screen {//画面
     isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
     isOverflowRange(rect) { return this.rangeRect.isOverflow(rect); }
 }
+class Bloom {
+    constructor(width, height) {
+        this._createOffscreen(width, height);
+        this._createBuffers(width, height);
+    }
+    _createOffscreen(width, height) {
+        this.offscreen = document.createElement('canvas');
+        this.offscreen.width = width;
+        this.offscreen.height = height;
+    }
+    _createBuffers(width, height) {
+        this.buffers = [];
+        const createbuffer = (index) => {
+            const bufCanvas = document.createElement('canvas');
+            const scale = 2 ** index;
+            const bufWidth = width / scale, bufHeight = height / scale;
+            bufCanvas.width = Math.floor(bufWidth);
+            bufCanvas.height = Math.floor(bufHeight);
+            const bufCtx = bufCanvas.getContext('2d');
+            bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
+            bufCtx.globalAlpha = 0.25;
+            return bufCanvas;
+        }
+        for (let i = 0; i < 4; i++) {
+            this.buffers[i] = createbuffer(i);
+        }
+    }
+    apply(sourcelist, screenCanvas) {
+        if (cfg.graphics.bloom) {//
+            for (const layer of sourcelist) {
+                layer.after();
+                const ctx = screenCanvas.getContext('2d');
+                ctx.drawImage(layer.canvas, 0, 0);
+            }
+            return;
+        }
+        const offCtx = this.offscreen.getContext('2d');
+        offCtx.clearRect(0, 0, this.offscreen.width, this.offscreen.height);
+        for (const layer of sourcelist) {
+            layer.after();
+            offCtx.drawImage(layer.canvas, 0, 0);
+        }
+        for (const buffer of this.buffers) {
+            const w = buffer.width;
+            const h = buffer.height;
+            const bufCtx = buffer.getContext('2d');
+            bufCtx.clearRect(0, 0, w, h);
+            bufCtx.drawImage(this.offscreen, 0, 0, w, h);
+        }
+        offCtx.globalCompositeOperation = "lighter";
+        for (const buffer of this.buffers) {
+            offCtx.drawImage(buffer, 0, 0, this.offscreen.width, this.offscreen.height);
+        }
+        offCtx.globalCompositeOperation = "source-over";
+        screenCanvas.getContext('2d').drawImage(this.offscreen, 0, 0);
+    }
+}
 class Layers {//レイヤーのコンテナ
     constructor(screen) {
+        this.bloom = new Bloom(screen.width, screen.height);
         this.layersMap = new Map();
-        this.bases = [];
+        this.bg = [];
+        this.main = [];
         this.overlays = [];
         this.width = screen.width;
         this.height = screen.height;
         this._createDefaultLayer();
-        this._createBloomBuffer();
     }
     _createDefaultLayer() {
-        this.add('bg');
+        this.add('bg', { isBg: true });
         const bg = this.get('bg');
         bg.isUpdate = false;
         const bgctx = bg.getContext();
@@ -203,44 +317,32 @@ class Layers {//レイヤーのコンテナ
         this.add('main');
         this.add('ui', { isOverlay: true });
     }
-    _createBloomBuffer() {
-        const canvas = this.bloom = document.createElement('canvas');
-        canvas.className = 'bloomBuffer';
-        canvas.width = this.width;
-        canvas.height = this.height;
-    }
     before() {
-        for (const layer of this.bases) layer.before();
+        for (const layer of this.bg) layer.before();
+        for (const layer of this.main) layer.before();
         for (const layer of this.overlays) layer.before();
     }
     after(screen) {
         const ctx = screen.canvas.getContext('2d');
-        for (const layer of this.bases) {
+        for (const layer of this.bg) {
             layer.after();
             ctx.drawImage(layer.canvas, 0, 0);
         }
-        if (cfg.graphics.bloom) this._drawBloom(screen.canvas, ctx);//ブルームエフェクト
+        this.bloom.apply(this.main, screen.canvas);
         for (const layer of this.overlays) {
             layer.after();
             ctx.drawImage(layer.canvas, 0, 0);
         }
     }
-    _drawBloom(canvas, ctx) {
-        const bloomCtx = this.bloom.getContext('2d');
-        bloomCtx.clearRect(0, 0, this.width, this.height);
-        bloomCtx.drawImage(canvas, 0, 0);
-        bloomCtx.filter = "blur(20px)";
-        ctx.save();
-        ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = 0.5;
-        ctx.drawImage(this.bloom, 0, 0);
-        ctx.restore();
+    add(names, { insertBefore = '', isBg = false, isOverlay = false } = {}) {
+        for (const name of Array.isArray(names) ? names : [names]) this._create(name, insertBefore, isBg, isOverlay);
     }
-    add(names, { insertBefore = '', isOverlay = false } = {}) {
-        for (const name of Array.isArray(names) ? names : [names]) this._create(name, insertBefore, isOverlay);
-    }
-    _create(name, insertBefore, isOverlay) {
-        const layers = isOverlay ? this.overlays : this.bases;
+    _create(name, insertBefore, isBg, isOverlay) {
+        console.log(name);
+        const layers =
+            isBg ? this.bg :
+                isOverlay ? this.overlays :
+                    this.main;
         const layer = new Layer(this.width, this.height, name);
         this.layersMap.set(name, layer);
         let refIndex = layers.length;
@@ -685,6 +787,7 @@ export class Coro {//コルーチンのコンポーネント
     }
     start(coro, id = Util.uniqueId()) {
         if (!coro) return undefined;
+        this.generators.delete(id);
         this.generators.set(id, coro);
         return id;
     }
@@ -725,17 +828,17 @@ export function* waitForFrag(func) {//関数の戻り値がtrueになるまで�
     return true;
 }
 export function* waitForTime(time) {//指定した時間まで待機
-    time -= game.delta;
+    time -= Game.delta;
     while (time > 0) {
-        time -= game.delta;
+        time -= Game.delta;
         yield undefined;
     }
     return true;
 }
 export function* waitForTimeOrFrag(time, func) {//指定した時間が経つか関数の戻り値がtrueになるまで待機
-    time -= game.delta;
+    time -= Game.delta;
     while (time > 0 && !func?.()) {
-        time -= game.delta;
+        time -= Game.delta;
         yield undefined;
     }
     return true;
@@ -744,7 +847,7 @@ export function* repeatPerSecond(rate, count, func) {//1秒あたりrateの回�
     let rest = 0;
     let exec = 0;
     while (exec < count) {
-        rest += game.delta * rate;
+        rest += Game.delta * rate;
         while (rest >= 1 && exec < count) {
             func();
             exec++;
@@ -759,7 +862,7 @@ export function* repeatFor(seconds, count, func) {//指定の秒数かけて関�
     let elaps = 0;
     let exec = 0;
     while (exec < count) {
-        elaps += game.delta;
+        elaps += Game.delta;
         while (exec < count && elaps >= interval * (exec + 1)) {
             func();
             exec++;
@@ -836,7 +939,7 @@ export class Child {//子持ちコンポーネント
         for (const obj of this.objs) obj.baseUpdate();
     }
     draw(ctx) {
-        let currentCtx = this.drawlayer !== '' ? game.layers.get(this.drawlayer).getContext() : ctx;
+        let currentCtx = this.drawlayer !== '' ? Game.layers.get(this.drawlayer).getContext() : ctx;
         for (const obj of this.objs) obj.baseDraw(currentCtx);
     }
     each(func) {
@@ -854,6 +957,8 @@ export class Color {//色コンポーネント
         this.setColor(cfg.theme.text);
         this.alpha = this.baseAlpha = 1;
         this.func = undefined;
+        this.filter = 'none';
+        this.composite = 'source-over';
     }
     setColor(color) {
         this.value = this.baseColor = color;
@@ -877,7 +982,7 @@ export class Color {//色コンポーネント
                 this.restore();
                 return;
             }
-            timer -= game.delta;
+            timer -= Game.delta;
         };
     }
     blink(interval) {
@@ -894,12 +999,14 @@ export class Color {//色コンポーネント
                 this.alpha = this.alpha === 1 ? 0 : 1;
                 return;
             }
-            timer -= game.delta;
+            timer -= Game.delta;
         };
     }
     applyContext(ctx) {
         ctx.fillStyle = this.value;
         ctx.globalAlpha = this.alpha;
+        ctx.filter = this.filter;
+        ctx.globalCompositeOperation = this.composite;
     }
 }
 export class Pos {//位置と大きさコンポーネント
@@ -1051,7 +1158,7 @@ export class Lissajous {
     }
     update() {
         if (!this.enable) return;
-        this.t += game.delta * (Math.PI * 2 / this.cycle);
+        this.t += Game.delta * (Math.PI * 2 / this.cycle);
         const pos = this.owner.pos;
         pos.x -= this.x;
         pos.y -= this.y;
@@ -1127,9 +1234,9 @@ export class Ease {//イージング
         return waitForFrag(() => this.time === 0);
     }
     getCurrent() {
-        if (this.isDelta) return game.delta;
+        if (this.isDelta) return Game.delta;
         if (this.time === 0) return 0;
-        const addingTime = game.delta / this.time;
+        const addingTime = Game.delta / this.time;
         this.elaps += addingTime;
         if (!this.isLoop && this.elaps >= 1) this.elaps = 1;
         const easing = this.ease(this.elaps);
@@ -1138,7 +1245,7 @@ export class Ease {//イージング
         if (!this.isLoop && this.elaps >= 1) {
             this.time = 0;
             this.isDelta = this.endToDelta;
-            if (this.isDelta) return game.delta;
+            if (this.isDelta) return Game.delta;
         }
         return (easingDif * this.range) + (Math.sign(easingDif) * this.ofs * addingTime);//結果を範囲内に収める
     }
@@ -1301,25 +1408,27 @@ export class Moji {//文字コンポーネント
         pos.angle = angle;
         this.owner.color.setColor(color);
         this.imageCache = this.imageCacheBuffer = undefined;
-        if (useImagecache) {
-            if (!Moji.imageCache.has(this.cacheKey)) {
-                const cache = this.imageCache = document.createElement('canvas');
-                const buf = this.imageCacheBuffer = document.createElement('canvas');
-                Moji.imageCache.set(this.cacheKey, [cache, buf]);
-                buf.width = cache.width = pos._width;
-                buf.height = cache.height = pos._height;
-                const ctx = cache.getContext('2d');
-                ctx.save();
-                this._applyContext(ctx);
-                this.owner.color.applyContext(ctx);
-                for (let i = 0; i < this.textSplit.length; i++) {
-                    ctx.fillText(this.textSplit[i], 0, (pos._height * 0.5) + this.baselineCollects[i] + (i * this.lineHeight));
-                }
-                ctx.restore();
-            } else {
-                [this.imageCache, this.imageCacheBuffer] = Moji.imageCache.get(this.cacheKey);
+        if (useImagecache) this.applyImageCache();
+    }
+    applyImageCache() {
+        if (!Moji.imageCache.has(this.cacheKey)) {
+            const cache = this.imageCache = document.createElement('canvas');
+            const buf = this.imageCacheBuffer = document.createElement('canvas');
+            Moji.imageCache.set(this.cacheKey, [cache, buf]);
+            const pos = this.owner.pos;
+            buf.width = cache.width = pos._width;
+            buf.height = cache.height = pos._height;
+            const ctx = cache.getContext('2d');
+            ctx.save();
+            this._applyContext(ctx);
+            this.owner.color.applyContext(ctx);
+            for (let i = 0; i < this.textSplit.length; i++) {
+                ctx.fillText(this.textSplit[i], 0, (pos._height * 0.5) + this.baselineCollects[i] + (i * this.lineHeight));
             }
+            ctx.restore();
+            return;
         }
+        [this.imageCache, this.imageCacheBuffer] = Moji.imageCache.get(this.cacheKey);
     }
     get lineSpace() { return this.size * 0.25; }
     get lineHeight() { return this.size + this.lineSpace; }
@@ -1333,7 +1442,7 @@ export class Moji {//文字コンポーネント
         let textSize = Moji.sizeCache.get(this.cacheKey);
         if (!textSize) {
             let textWidth = 0, textHeight = 0, baselineCollects = [];
-            const ctx = game.layers.get('main').getContext();
+            const ctx = Game.layers.get('main').getContext();
             this._applyContext(ctx);
             for (let i = 0; i < this.textSplit.length; i++) {
                 if (i > 0) textHeight = this.lineHeight * i;
@@ -1369,12 +1478,14 @@ export class Moji {//文字コンポーネント
             }
         } else {
             const bufCtx = this.imageCacheBuffer.getContext('2d');
-            bufCtx.clearRect(0, 0, pos.width, pos.height);
-            bufCtx.globalCompositeOperation = 'source-over';
-            bufCtx.drawImage(this.imageCache, 0, 0);
-            bufCtx.globalCompositeOperation = 'source-atop';
-            bufCtx.fillStyle = this.owner.color.value;
-            bufCtx.fillRect(0, 0, pos.width, pos.height);
+            if (bufCtx.fillStyle !== this.owner.color.value) {
+                bufCtx.fillStyle = this.owner.color.value;
+                bufCtx.clearRect(0, 0, pos.width, pos.height);
+                bufCtx.globalCompositeOperation = 'source-over';
+                bufCtx.drawImage(this.imageCache, 0, 0);
+                bufCtx.globalCompositeOperation = 'source-atop';
+                bufCtx.fillRect(0, 0, pos.width, pos.height);
+            }
             ctx.drawImage(this.imageCacheBuffer, -(pos._width * 0.5), -(pos._height * 0.5));
         }
         ctx.restore();

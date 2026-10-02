@@ -724,7 +724,7 @@ export class Mono {//ゲームオブジェクト
         this.isRemoved = false;
         this.mixs = [];
         this.childIndex = -1;
-        this.remove = undefined;
+        this.remove = () => { };
         this.addMix(args);
     }
     addMix(mixCtor, target, isAfter = false) {
@@ -827,13 +827,19 @@ export function* waitForFrag(func) {//関数の戻り値がtrueになるまで�
     while (!func()) yield undefined;
     return true;
 }
-export function* waitForTime(time) {//指定した時間まで待機
-    time -= Game.delta;
-    while (time > 0) {
-        time -= Game.delta;
-        yield undefined;
-    }
-    return true;
+export function waitForTime(time) {//指定した時間まで待機
+    const state = { time };
+    const generator = (function* () {
+        state.time -= Game.delta;
+        while (state.time > 0) {
+            state.time -= Game.delta;
+            yield undefined;
+        }
+        state.time
+        return true;
+    })();
+    generator.state = state;
+    return generator;
 }
 export function* waitForTimeOrFrag(time, func) {//指定した時間が経つか関数の戻り値がtrueになるまで待機
     time -= Game.delta;
@@ -1564,17 +1570,32 @@ export class Gauge extends Mono {//ゲージ
         this.pos.width = 100;
         this.pos.height = 10;
     }
+    set(x, y, width, height, color, border, max, watch) {
+        this.pos.set(x, y, width, height);
+        this.color = color;
+        this.border = border;
+        this.max = max;
+        this.watch = watch;
+    }
     draw(ctx) {
         ctx.save();
         ctx.fillStyle = this.color;
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = this.border;
         const pos = this.pos;
-        const x = pos.left;
-        const y = pos.top;
+        let x = pos.left;
+        let y = pos.top;
+        let w = pos.width;
+        let h = pos.height;
         const b = this.border + 1;
-        ctx.strokeRect(x, y, pos.width, pos.height);
-        ctx.fillRect(x + b, y + b, (pos.width - b * 2) * (this.watch?.() / this.max), pos.height - (b * 2));
+        if (this.border > 0) {
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = this.border;
+            ctx.strokeRect(x, y, pos.width, pos.height);
+            x += b;
+            y += b;
+            w -= b * 2;
+            h -= b * 2;
+        }
+        ctx.fillRect(x, y, w * (this.watch?.() / this.max), h);
         ctx.restore();
     }
 }

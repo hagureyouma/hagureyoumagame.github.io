@@ -117,7 +117,7 @@ class Time {//フレームタイム
     }
     getDelta() {
         const now = performance.now();
-        const delta = Math.min((now - this.time) / 1000.0, 1 / 60);//最低フレームレートは暫定
+        const delta = Math.min((now - this.time) / 1000.0, 1 / 20);//最低フレームレートは暫定
         this.time = now;
 
         this.fpsBuffer[this.fpsIndex] = delta;

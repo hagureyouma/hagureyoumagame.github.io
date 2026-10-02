@@ -2065,7 +2065,7 @@ const datas = {//ゲームデータ
     },
     game: {
         highscoreListMax: 10,
-        extendedScore: 200000,
+        extendedScore: 100000,
         defaultRemains: 2,
         defaultBombs: 2
     }

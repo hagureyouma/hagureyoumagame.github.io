@@ -10,7 +10,7 @@ export const cfg = {
         height: 720
     },
     graphics: {
-        bloom: false
+        bloom: true
     },
     font: {
         default: {
@@ -262,8 +262,8 @@ class Bloom {
             bufCtx.globalAlpha = 0.2;
             return bufCanvas;
         }
-        for (let i = 0; i < 4; i++) {
-            this.buffers[i] = createbuffer(i);
+        for (let i = 0; i < 3; i++) {
+            this.buffers[i] = createbuffer(i+1);
         }
     }
     apply(sourcelist, screenCanvas) {

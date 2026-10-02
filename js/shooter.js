@@ -1061,7 +1061,7 @@ class Baddie extends Mono {//敵キャラ
                 if (Util.rand(100) < 30) {
                     bullets.multiWay(user.pos.linkX, user.pos.linkY, { deg: Util.xyToDeg(scene.player.pos.x - user.pos.linkX, scene.player.pos.y - user.pos.linkY), count: 1, color: datas.color.bullet.enemyAim });
                 } else {
-                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 2, color: datas.color.bullet.enemyNormal1 });
+                    bullets.multiWay(user.pos.linkX, user.pos.linkY, { count: 2, color: datas.color.bullet.enemyNormal2 });
                 }
                 yield* waitForTime(3);
             };

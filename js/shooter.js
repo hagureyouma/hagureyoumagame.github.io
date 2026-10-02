@@ -3,24 +3,15 @@
 //by はぐれヨウマ
 
 {//Javascriptメモ
-    //動的言語だからか入力補完があまり効かなくて不便～
     //thisは.の左のオブジェクトのこと！thisを固定するにはbindやCallする　アロー関数=>のthisは変わらないよ
     //ゲッター・セッターはアロー関数=>に未対応
     //スプレッド構文[1,...配列A,2...配列B]
-    //Mapは名前で読み書きできる配列
     //ジェネレーター構文*method(){}関数を中断と再開できる アロー関数=>はない
     //jsファイルを後から読み込むには、script要素を追加してonloadイベントで待つのがいい？
     //a=yield 1;→b=generator.next();でbに1が返ってきて、続けてgenerator.next(2)でaに2が返ってくる　yieldの外と変数のやり取りができる
     //非同期 new Promise((resolve){非同期にやりたいこと;resolve();}).then(){非同期が終わってから呼ばれる};
     //async関数はresolveが呼んであるPromiseオブジェクトをreturnするよ
-    //webフォントの読み込み待ちはonloadイベントでできないみたいなのでWebFontLoaderを使った
-    //プロパティをコンストラクタで定義するのとインスタンスに後から追加するのは、なにか違いがあるの？
-}
-{//仕様メモ
-    //毎フレームの処理の順序　オブジェクトツリーのルートから順に、update→コンポーネントundate→postupdate　draw→コンポーネントdraw
-}
-{//やりたいことメモ
-    //残像の色変更　HSV色空間とグラデーションマップがいる
+    //webフォントの読み込み待ちはonloadイベントでできないみたいなのでWebFontLoaderを使いました
 }
 'use strict';
 console.clear();
@@ -511,7 +502,6 @@ class Baddie extends Mono {//敵キャラ
             const moveSpeed = 100;
             user.move.set(0, moveSpeed);
             user.unit.onDefeat = () => {
-                console.log('ボムを取得したかもしれない');
                 shared.playdata.total.bomb++;
             };
         },
@@ -519,7 +509,6 @@ class Baddie extends Mono {//敵キャラ
             const moveSpeed = 100;
             user.move.set(0, moveSpeed);
             user.unit.onDefeat = () => {
-                console.log('パワーアップショット1を取得した気がする');
                 scene.player.setWeapon('coroPowerupShot1', 10);
             };
         },

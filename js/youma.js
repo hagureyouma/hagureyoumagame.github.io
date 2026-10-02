@@ -10,7 +10,7 @@ export const cfg = {
         height: 720
     },
     graphics: {
-        bloom: true
+        bloom: false
     },
     font: {
         default: {

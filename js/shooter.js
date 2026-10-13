@@ -1812,10 +1812,10 @@ class ScenePlay extends Mono {//プレイ画面
         this.player.collision.isEnable = false;
     }
     * _phaseInvasion() {//道中
-        // const items = ['bomb', 'powerupShot1', 'powerupShield1'];
-        const items = ['powerupShot1', 'powerupShield1'];
-        //const itemSpawnRate = 0.025;
-        const itemSpawnRate = 1;
+        const items = ['bomb', 'powerupShot1', 'powerupShield1'];
+        //const items = ['powerupShot1', 'powerupShield1'];
+        const itemSpawnRate = 0.025;
+        //const itemSpawnRate = 1;
         let itemSpawnCounter = 0;
         const appears = ['crow', 'dove', 'crossdove', 'obake', 'bigcrow'];
         const phaseSec = 30;

@@ -9,7 +9,7 @@ export const cfg = {//設定
         height: 720
     },
     graphics: {
-        bloom: true
+        bloom: false
     },
     font: {
         default: {
@@ -1301,6 +1301,7 @@ export class Afterimage extends Mono {//残像
         this.isPauseBlur = false;
     }
     getContext() { return this.picture.getContext() }
+    clearblur() { this.blur.getContext('2d').clearRect(0, 0, this.blur.width, this.blur.height); }
     update() {
         this.picture.clear();
         this.picture.getContext().drawImage(this.blur, 0, 0);
@@ -1308,8 +1309,8 @@ export class Afterimage extends Mono {//残像
     draw(ctx) {
         this.picture.draw(ctx);
         if (this.isPauseBlur) return;
+        this.clearblur();
         const blurCtx = this.blur.getContext('2d');
-        blurCtx.clearRect(0, 0, this.blur.width, this.blur.height);
         blurCtx.globalAlpha = 0.7;
         blurCtx.drawImage(this.picture.canvas, 0, 0);
     }

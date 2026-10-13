@@ -281,7 +281,7 @@ class Player extends Mono {//自機
         this.unit.set(data, scene);
         this.unit.onDamage = () => {
             this.unit.enableInvincible(datas.player.damagedInvincibilityTime);//被弾時の無敵時間
-            this.unit.powerup.condition('powerupShield1');
+            this.unit.powerup.condition('powerupShield1');//シールドへの被弾
         }
         this.unit.onDefeat = () => {
             scene.swapPlayerDammy();
@@ -293,7 +293,7 @@ class Player extends Mono {//自機
             }.call(this));
         }
         this.moji.set(Util.parseUnicode(data.char), 0, 0, { size: data.size, color: data.color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
-        this.collision.set(this.pos.width * 0.2, this.pos.height * 0.2);
+        this.collision.set(this.pos.width * datas.player.collisionVias, this.pos.height * datas.player.collisionVias);
         this.resetPos();
     }
     resetPos() {
@@ -554,7 +554,13 @@ class Baddie extends Mono {//敵キャラ
         this.routine = this.routines[data.routine](this, pattern, bullets, scene);
         this.pos.parent = parent;
         this.moji.set(Util.parseUnicode(data.char), x, y, { size: data.size, color: data.color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
-        this.collision.set(this.pos.width, this.pos.height);
+        let colX = this.pos.width, colY = this.pos.height;
+        if (data.type === CharaData.type.item) {//アイテムは当たり判定を拡大
+            const vias = (1 - datas.player.collisionVias);
+            colX += scene.player.pos.width * vias;
+            colY += scene.player.pos.height * vias;
+        }
+        this.collision.set(colX, colY);
         this.unit.set(data, scene);
         this.unit.onDefeat = () => {
             scene.addKo();
@@ -1002,8 +1008,8 @@ class Baddie extends Mono {//敵キャラ
             };
             //弾パターン
             const circleAimShot = function* () {
-                const count = 3;
-                const spreadSpeed = 200, spreadVias = 0.5, aimSpeed = 350;
+                const count = 2;
+                const spreadSpeed = 200, spreadVias = 0.75, aimSpeed = 350;
                 //展開
                 const bulletList = bullets.circle(user.pos.x, user.pos.y, { speed: spreadSpeed, count: count * 4, color: datas.color.bullet.enemyAim, isOutOfScreenToRemove: false });
                 yield* waitForTime(0.4);
@@ -1020,8 +1026,8 @@ class Baddie extends Mono {//敵キャラ
                 yield* waitForTime(1);
             }
             const circleAimShotCross = function* () {
-                const count = 3;
-                const spreadSpeed = 200, spreadVias = 0.5, aimSpeed = 350;
+                const count = 2;
+                const spreadSpeed = 200, spreadVias = 0.75, aimSpeed = 350;
                 //展開
                 const leftBullets = bullets.circle(user.pos.left - user.pos.width, user.pos.y, { speed: spreadSpeed, count: count * 4, color: datas.color.bullet.enemyAim, isOutOfScreenToRemove: false });
                 const rightBullets = bullets.circle(user.pos.right + user.pos.width, user.pos.y, { speed: spreadSpeed, count: count * 4, color: datas.color.bullet.enemyAim, isOutOfScreenToRemove: false });
@@ -1121,12 +1127,12 @@ class Baddie extends Mono {//敵キャラ
             const guidedSplitShot = function* () {
                 const bulletlist = [];
                 for (let i = 0; i < 2; i++) {
-                    bulletlist.push(...bullets.multiWay(user.pos.x, user.pos.y, { deg: Util.rand(120, 60), space: 25, count: 1, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1.75 }));
+                    bulletlist.push(...bullets.multiWay(user.pos.x, user.pos.y, { deg: Util.rand(120, 60), space: 25, count: 1, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1.75 ,isOutOfScreenToRemove:false}));
                 }
                 yield* waitForTime(1.5);
                 for (let i = 0; i < 2; i++) {
                     const bullet = bulletlist[i];
-                    bullets.multiWay(bullet.pos.x, bullet.pos.y, { deg: 90, space: 72, count: 5, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1 });
+                    bullets.multiWay(bullet.pos.x, bullet.pos.y, { deg: 90, space: 72, count: 5, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1,isOutOfScreenToRemove:true });
                     bullet.remove();
                 }
             };
@@ -1688,7 +1694,6 @@ class ScenePlay extends Mono {//プレイ画面
         //this.ui.child.drawlayer = 'ui';
         //スコア表示        
         this.ui.child.add(this.textScore = new Label(() => `SCORE ${shared.playdata.total.point} KO ${shared.playdata.total.ko}`, 2, 2));
-        //this.ui.child.add(this.fpsView = new Label(() => `FPS: ${Game.fps}`, Game.width - 2, 2, { align: 2 }));
         this.ui.child.add(this.textStage = new Label(() => `STAGE: ${shared.playdata.total.stage}`, Game.width - 2, 2, { align: 2 }));
         //残機表示
         this.ui.child.add(this.remains = new Label(() => this.createRemainsText(datas.player.data.char, shared.playdata.total.remains), 0, cfg.fontSize.normal * 1.25, { color: datas.player.data.color, font: cfg.font.emoji.name }));
@@ -1697,13 +1702,15 @@ class ScenePlay extends Mono {//プレイ画面
         //キャラ個別UI
         this.ui.child.add(this.charaUi = new Mono(Child));
         //デバッグ表示
-        //this.ui.child.add(this.debug = new Watch());
-        // this.debug.pos.y = cfg.fontSize.normal * 1.25 * 2;
-        // this.debug.add(() => `敵の数:${this.baddies.child.liveCount}`);
-        // this.debug.add(() => `自機の弾の数${this.playerbullets.child.liveCount}`);
-        // this.debug.add(() => `敵の弾の数${this.baddiesbullets.child.liveCount}`);
-        // this.debug.add(() => `粒子の数${this.effect.child.liveCount}`);
-        // this.debug.add(() => `背景の数${this.background.child.liveCount}`);
+        this.ui.child.add(this.debug = new Watch());
+        this.debug.pos.y = cfg.fontSize.normal * 1.25 * 2;
+        this.debug.add(() => `敵の数:${this.baddies.child.liveCount}`);
+        this.debug.add(() => `自機の弾の数${this.playerbullets.child.liveCount}`);
+        this.debug.add(() => `敵の弾の数${this.baddiesbullets.child.liveCount}`);
+        this.debug.add(() => `粒子の数${this.effect.child.liveCount}`);
+        this.debug.add(() => `背景の数${this.bgDeco.child.liveCount}`);
+        this.debug.add(() => `残機${shared.playdata.total.remains}`);
+        this.debug.add(() => `FPS${Game.time.fps}`);
     }
     createRemainsText(emoji, count) {
         if (count <= 0) return '';
@@ -1742,23 +1749,25 @@ class ScenePlay extends Mono {//プレイ画面
         });
     }
     postUpdate() {
-        //キャラ同士の当たり判定
-        this.hitCheck(this.baddies, this.playerside, (baddie, player) => {
-            if (!player.unit.isDamage()) return;
-            player.unit.damage(1);
-        });
-        //ボムの当たり判定
+        //ヒット判定
+        //ボム
         this.hitCheckAttack(this.playerbomb, this.baddies);
         this.hitCheck(this.playerbomb, this.baddiesbullets, (bomb, bullet) => {
             bullet.remove();
         });
-        //弾の当たり判定
+        //自機の弾
         this.hitCheckAttack(this.playerbullets, this.baddies);
-        this.hitCheckAttack(this.baddiesbullets, this.playerside);
-        //自機とアイテムの当たり判定
+        //自機とアイテム
         this.hitCheck(this.items, this.playerside, (item, player) => {
             if (player !== this.player) return;
             item.unit.damage(1);
+        });
+        //敵の弾
+        this.hitCheckAttack(this.baddiesbullets, this.playerside);
+        //キャラ同士
+        this.hitCheck(this.baddies, this.playerside, (baddie, player) => {
+            if (!player.unit.isDamage()) return;
+            player.unit.damage(1);
         });
     }
     * coroDefault() {
@@ -1808,10 +1817,8 @@ class ScenePlay extends Mono {//プレイ画面
         }
     }
     * coroStage() {
-        //yield* waitForFrag(()=>false);
-        if (!this.bossMode) yield* this._phaseInvasion();
+        //if (!this.bossMode) yield* this._phaseInvasion();
         yield* this._phaseBoss();
-        this.player.collision.isEnable = false;
     }
     * _phaseInvasion() {//道中
         const items = ['bomb', 'powerupShot1', 'powerupShield1'];
@@ -1849,13 +1856,18 @@ class ScenePlay extends Mono {//プレイ画面
         //this.background.moonRise();
         //ボス呼び出し
         const bossName = datas.bosses[(shared.playdata.total.stage - 1) % datas.bosses.length];
-        const data = datas.baddies[bossName];
+        //const data = datas.baddies[bossName];
+        const data = datas.baddies['greatdove'];
         const formation = data.forms[0];
         const [boss] = this.spawner.formation(Baddie.name, formation, data, -1, this.baddies, this.baddiesbullets, this, { x: Game.width * 0.5 });
         //ボスのHPをステージ数に応じて増やす
         const collencetHP = Math.floor(boss.unit.status.hpMax * (1 + (shared.playdata.total.stage - 1) / 10));
         boss.unit.status.hp = boss.unit.status.hpMax = collencetHP;
+        //ボスを撃破した後　プレイヤーが撃破されないようにする
         boss.unit.onDefeat = () => {
+            if (this.player !== this.playerDammy) {
+                this.player.unit.status.invincible = true;
+            }
             this.isClear = true;
         }
         //ボスのHPゲージ
@@ -1864,10 +1876,7 @@ class ScenePlay extends Mono {//プレイ画面
         bossHpGauge.pos.align = 1;
         this.charaUi.child.add(bossHpGauge);
         //ボスが倒されるまで待機
-        while (!this.isClear) {
-            if (this.isFailure) boss.unit.status.invincible = true;
-            yield undefined;
-        }
+        yield* waitForFrag(() => this.isClear);
         bossHpGauge.remove();
     }
     newGame() {
@@ -1880,14 +1889,14 @@ class ScenePlay extends Mono {//プレイ画面
         shared.playdata.backup = new scoreData(shared.playdata.total);
         this.resetStage(true);
     }
+    swapPlayerDammy() {//自機が撃破されて画面にいない間のターゲット用ダミー
+        this.playerDammy.pos.set(this.player.pos.x, this.player.pos.y, 0, 0);
+        this.player = this.playerDammy;
+    }
     playerSpawn() {
         this.player?.remove();
         this.player = this.playerside.child.pool(Player.name);
         this.player.set(this);
-    }
-    swapPlayerDammy() {//自機が撃破されて画面にいない間のターゲット用ダミー
-        this.playerDammy.pos.set(this.player.pos.x, this.player.pos.y, 0, 0);
-        this.player = this.playerDammy;
     }
     playerRespawn() {
         this.playerSpawn();
@@ -1899,13 +1908,14 @@ class ScenePlay extends Mono {//プレイ画面
         this.cloud.Run();
         this.bgDeco.Run();
         this.playerbomb.child.removeAll();
-        if (!isNextStage) {//次のステージに進む場合にパワーアップを持続させるための分岐
+        //次のステージに進む場合にパワーアップを持続させるための分岐
+        if (!isNextStage) {
             this.playerSpawn();
             this.charaUi.child.removeAll();
         } else {
             this.player.resetPos();
             this.player.resetCoro();
-            this.player.collision.isEnable = true;
+            this.player.unit.status.invincible = false;
         }
         this.baddies.child.removeAll();
         this.playerbullets.child.removeAll();
@@ -1915,6 +1925,7 @@ class ScenePlay extends Mono {//プレイ画面
         this.coro.reset();
         this.coro.start(this.coroStage());
         this.telop.hide();
+        this.afterimage.clearblur();
     }
     addPoint(point) {
         shared.playdata.total.point += point;
@@ -2216,9 +2227,10 @@ const datas = {//ゲームデータ
         bulletSpeed: 600,
         firelate: 1 / 20,
         damagedInvincibilityTime: 1,
+        collisionVias: 0.2,
     },
     items: {
-        bomb: new CharaData(CharaData.type.bomb, 'bomb', 'Bomb', EMOJI.BOMB, color.chara.black, 20, 0, 1000, { defeatEffect: 'star2', routine: 'bomb', bomb: 1 }),
+        bomb: new CharaData(CharaData.type.item, 'bomb', 'Bomb', EMOJI.BOMB, color.chara.black, 20, 0, 1000, { defeatEffect: 'star2', routine: 'bomb', bomb: 1 }),
         powerupShot1: new CharaData(CharaData.type.item, 'powerupShot1', 'Fast Spred Shot', EMOJI.GIFT, color.bullet.PlayerPower1, 20, 0, 1000, { defeatEffect: 'star2', routine: 'powerupShot1' }),
         powerupShield1: new CharaData(CharaData.type.item, 'powerupShield1', 'Over Shield', EMOJI.GIFT, color.item.playerShield1, 20, 0, 1000, { defeatEffect: 'star2', routine: 'powerupShield1' }),
     },

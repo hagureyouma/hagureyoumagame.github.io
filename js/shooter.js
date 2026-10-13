@@ -17,7 +17,7 @@
 console.clear();
 
 import { cfg, EMOJI, Game, Util, Rect, Mono, Coro, wait, waitForFrag, waitForTime, waitForTimeOrFrag, repeatFor, Child, Pos, Scale, Move, Lissajous, Anime, Ease, Guided, Collision, Brush, Tofu, Picture, E, Moji, Label, Particle, Gauge, Watch, Color, through, Afterimage } from "./youma.js";
-class Unit {//ユニットコンポーネント
+class Unit {//ユニットのコンポーネント
     static requires = [Coro, Pos, Scale, Move, Lissajous, Collision, Color];
     constructor(owner) {
         this.status = new UnitStatus();
@@ -114,7 +114,7 @@ class Unit {//ユニットコンポーネント
         this.action.update();
     }
 }
-class UnitStatus {
+class UnitStatus {//ステータス
     constructor() {
         this.reset();
     }
@@ -140,7 +140,7 @@ class UnitStatus {
         return false;
     }
 }
-class UnitPowerup {
+class UnitPowerup {//パワーアップ管理
     constructor(owner) {
         this.owner = owner;
         this.map = new Map();
@@ -216,7 +216,7 @@ class UnitPowerup {
         }
     }
 }
-class UnitAction {
+class UnitAction {//ユニットの特殊な動き
     constructor(owner) {
         this.owner = owner;
         this.reset();
@@ -1210,7 +1210,7 @@ class Bullet {//弾コンポーネント
         this.patternId = undefined;
     }
 }
-class Attack extends Mono {
+class Attack extends Mono {//攻撃
     constructor() {
         super(Guided, Collision, Brush, Bullet);
     }
@@ -1264,7 +1264,7 @@ class BulletBox extends Mono {//弾
         return result;
     }
 }
-class Bomb extends Mono {
+class Bomb extends Mono {//ボム
     constructor() {
         super(Coro, Pos, Scale, Collision, Brush, Bullet);
     }
@@ -1287,7 +1287,7 @@ class Bomb extends Mono {
         this.remove();
     }
 }
-class BombCarrier extends Mono {
+class BombCarrier extends Mono {//ボムの保持
     constructor() {
         super(Child);
         this.child.addCreator('bomb', () => new Bomb());
@@ -1297,7 +1297,20 @@ class BombCarrier extends Mono {
         bomb.set(x, y);
     }
 }
-class BgCloud extends Mono {
+class Sky extends Mono {//背景の空
+    constructor() {
+        super(Picture);
+        this.picture.set(Game.width, Game.height, (ctx) => {
+            const grad = ctx.createLinearGradient(0, 0, 0, Game.height);
+            grad.addColorStop(0, datas.color.highsky);
+            //grad.addColorStop(0.95,"#FF7518");
+            grad.addColorStop(1, datas.color.lowsky);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, Game.width, Game.height);
+        });
+    }
+}
+class BgCloud extends Mono {//背景の雲
     constructor() {
         super(Coro, Child);
         //this.child.drawlayer = 'cloud';
@@ -1340,7 +1353,7 @@ class BgCloud extends Mono {
         }
     }
 }
-class BgDeco extends Mono {
+class BgDeco extends Mono {//背景の星
     constructor() {
         super(Coro, Child);
         this.child.addCreator('stars', () => this._decoCreator());
@@ -1475,7 +1488,6 @@ class Menu extends Mono {//メニュー表示
     }
     current = () => this.index === -1 ? undefined : this.child.objs[this.index + this.indexOffset].moji.text;
 }
-
 class SceneDebug extends Mono {//デバッグルーム
     constructor() {
         super(Child);
@@ -1540,19 +1552,6 @@ class SceneDebug extends Mono {//デバッグルーム
             if (Game.input.isPress('z')) break;
         }
         Game.popScene();
-    }
-}
-class Sky extends Mono {
-    constructor() {
-        super(Picture);
-        this.picture.set(Game.width, Game.height, (ctx) => {
-            const grad = ctx.createLinearGradient(0, 0, 0, Game.height);
-            grad.addColorStop(0, datas.color.highsky);
-            //grad.addColorStop(0.95,"#FF7518");
-            grad.addColorStop(1, datas.color.lowsky);
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, Game.width, Game.height);
-        });
     }
 }
 class SceneTitle extends Mono {//タイトル画面
@@ -2140,7 +2139,7 @@ class CharaData {//キャラデータ
         this.bomb = bomb;
     }
 }
-const color = {
+const color = {//色データ
     text: '#F4EEF7',
     texthighlight: '#ffd417',
     highsky: '#8581D0',

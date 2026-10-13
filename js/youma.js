@@ -3,8 +3,7 @@
 //
 //  Copyright (c) 2026 はぐれヨウマ
 'use strict';
-//設定
-export const cfg = {
+export const cfg = {//設定
     screenSize: {
         width: 540,
         height: 720
@@ -1019,7 +1018,7 @@ export class Move {//移動コンポーネント
     get isActive() { return this.ease.isActive; }
     get percentage() { return this.ease.percentage; }
 }
-export class Lissajous {
+export class Lissajous {//リサージュ曲線コンポーネント
     static requires = Pos;
     constructor() {
         this.reset();
@@ -1315,7 +1314,6 @@ export class Afterimage extends Mono {//残像
         blurCtx.drawImage(this.picture.canvas, 0, 0);
     }
 }
-
 export class Bloom extends Mono {//ブルーム
     constructor(width, height, name) {
         super(Picture);

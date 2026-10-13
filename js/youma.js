@@ -69,7 +69,7 @@ export const EMOJI = Object.freeze({
     BOMB: 'f1e2',
     CLOUD: 'f0c2',
 });
-export class Game {//エンジン本体
+export class Game {//ゲーム本体
     static async run(sceneCtor, width = 0, height = 0) {
         document.body.style.backgroundColor = cfg.theme.bg;
         if (width) cfg.screenSize.width = width;
@@ -77,10 +77,9 @@ export class Game {//エンジン本体
         Game.delta = 0;
         Game.asset = new AssetLoader();
         Game.screen = new Screen();
-        Game.layers = new Layers(Game.screen);
         Game.vpad = new VirtualPad(Game.screen);
         Game.input = new Input(Game.vpad);
-        Game.root = new Mono(Coro, Child);
+        Game._createMono();
         Game.time = new Time();
         Game.screen.resize();
         if (!await Game.asset.load([cfg.font.default, cfg.font.emoji])) return;
@@ -94,22 +93,35 @@ export class Game {//エンジン本体
         Game.root.baseUpdate();
         Child.clean();
         Game.screen.clear();
-        Game.layers.before();
-        Game.root.baseDraw(Game.layers.get('main').getContext());
-        Game.layers.after(Game.screen);
+        //Game.layers.before();
+        Game.root.baseDraw(Game.screen.getContext());
+        //Game.layers.after(Game.screen);
         requestAnimationFrame(Game._mainloop);
+    }
+    static _createMono() {
+        Game.root = new Mono(Coro, Child);
+        Game.root.child.add(Game.main = new Mono(Child));
+        if (cfg.graphics.bloom) {
+            Game.main.child.drawlayer = 'bloom';
+            Game.root.child.add(Game.bloom = new BloomEffect(Game.width, Game.height, 'bloom'));
+        }
     }
     static get width() { return Game.screen.width };
     static get height() { return Game.screen.height };
-    static pushScene(scene) { Game.root.child.add(scene); }
-    static popScene() { Game.root.child.pop(); }
+    static pushScene(scene) { Game.main.child.add(scene); }
+    static popScene() { Game.main.child.pop(); }
     static save(data, key) { Util.save(data, key); }
     static load(key) { return Util.load(key); }
     static deleteSave(key) { Util.deleteSave(key); }
+    static registry = new Map();
+    static get(name) { return Game.registry.get(name) }
+    static resist(name, obj) { Game.registry.set(name, obj) }
+    static expel(name) { Game.registry.delete(name) }
 }
 class Time {//フレームタイム
     constructor() {
-        this.time = this.fpsIndex = 0;
+        this.time = this.fpsIndex = 0
+        this.fastForward = 1;
         this.fpsBuffer = [];
     }
     init() {
@@ -122,8 +134,9 @@ class Time {//フレームタイム
 
         this.fpsBuffer[this.fpsIndex] = delta;
         this.fpsIndex = (this.fpsIndex + 1) % 60;
-        return delta;
+        return delta * this.fastForward;
     }
+    resetTimescale() { this.fastForward = 1; }
     get fps() { return Math.floor(1 / Util.average(this.fpsBuffer)); }
     get sec() { return this.time / 1000; }
 }
@@ -214,6 +227,7 @@ class Screen {//画面
         canvas.style.cssText += 'position: absolute; top: 0;';
         this.div.appendChild(canvas);
     }
+    getContext() { return this.canvas.getContext('2d'); }
     clear() { this.canvas.getContext('2d').clearRect(0, 0, this.width, this.height); }
     addResizeCallback(func) {
         this.resizeCallback.push(func);
@@ -227,7 +241,7 @@ class Screen {//画面
             this.viewWidth = Math.round(this.rect.width * scale);
             this.viewHeight = Math.round(this.rect.height * scale);
         }
-        this.canvas.style.cssText += `width:${this.viewWidth}px;height:${this.viewHeight}px; ${Util.isTouch() ? 'left:50%;transform:translate(-50%,0);' : 'left:0;transform:translate(0,0);'} `;
+        this.canvas.style.cssText += `width:${this.viewWidth}px;height:${this.viewHeight}px; ${Util.isTouch() ? 'left:50%;transform:translate(-50%,0);' : 'left:50%;transform:translate(-50%,0);'} `;
         for (const resize of this.resizeCallback) resize(this.viewWidth, this.viewHeight);
     }
     get width() { return this.rect.width; };
@@ -238,159 +252,6 @@ class Screen {//画面
     isOverflow(rect) { return this.rect.isOverflow(rect); }
     isOutOfRange(rect) { return !this.rangeRect.isIntersect(rect); }
     isOverflowRange(rect) { return this.rangeRect.isOverflow(rect); }
-}
-class Bloom {
-    constructor(width, height) {
-        this._createOffscreen(width, height);
-        this._createBuffers(width, height);
-    }
-    _createOffscreen(width, height) {
-        this.offscreen = document.createElement('canvas');
-        this.offscreen.width = width;
-        this.offscreen.height = height;
-    }
-    _createBuffers(width, height) {
-        this.buffers = [];
-        const createbuffer = (index) => {
-            const bufCanvas = document.createElement('canvas');
-            const scale = 2 ** index;
-            const bufWidth = width / scale, bufHeight = height / scale;
-            bufCanvas.width = Math.floor(bufWidth);
-            bufCanvas.height = Math.floor(bufHeight);
-            const bufCtx = bufCanvas.getContext('2d');
-            bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
-            bufCtx.globalAlpha = 0.2;
-            return bufCanvas;
-        }
-        for (let i = 0; i < 3; i++) {
-            this.buffers[i] = createbuffer(i+1);
-        }
-    }
-    apply(sourcelist, screenCanvas) {
-        if (!cfg.graphics.bloom) {//
-            for (const layer of sourcelist) {
-                layer.after();
-                const ctx = screenCanvas.getContext('2d');
-                ctx.drawImage(layer.canvas, 0, 0);
-            }
-            return;
-        }
-        const offCtx = this.offscreen.getContext('2d');
-        offCtx.clearRect(0, 0, this.offscreen.width, this.offscreen.height);
-        for (const layer of sourcelist) {
-            layer.after();
-            offCtx.drawImage(layer.canvas, 0, 0);
-        }
-        for (const buffer of this.buffers) {
-            const w = buffer.width;
-            const h = buffer.height;
-            const bufCtx = buffer.getContext('2d');
-            bufCtx.clearRect(0, 0, w, h);
-            bufCtx.drawImage(this.offscreen, 0, 0, w, h);
-        }
-        offCtx.globalCompositeOperation = "lighter";
-        for (const buffer of this.buffers) {
-            offCtx.drawImage(buffer, 0, 0, this.offscreen.width, this.offscreen.height);
-        }
-        offCtx.globalCompositeOperation = "source-over";
-        screenCanvas.getContext('2d').drawImage(this.offscreen, 0, 0);
-    }
-}
-class Layers {//レイヤーのコンテナ
-    constructor(screen) {
-        this.bloom = new Bloom(screen.width, screen.height);
-        this.layersMap = new Map();
-        this.bg = [];
-        this.main = [];
-        this.overlays = [];
-        this.width = screen.width;
-        this.height = screen.height;
-        this._createDefaultLayer();
-    }
-    _createDefaultLayer() {
-        this.add('bg', { isBg: true });
-        const bg = this.get('bg');
-        bg.isUpdate = false;
-        const bgctx = bg.getContext();
-        bgctx.fillStyle = 'black';
-        bgctx.fillRect(0, 0, this.width, this.height);
-        this.add('main');
-        this.add('ui', { isOverlay: true });
-    }
-    before() {
-        for (const layer of this.bg) layer.before();
-        for (const layer of this.main) layer.before();
-        for (const layer of this.overlays) layer.before();
-    }
-    after(screen) {
-        const ctx = screen.canvas.getContext('2d');
-        for (const layer of this.bg) {
-            layer.after();
-            ctx.drawImage(layer.canvas, 0, 0);
-        }
-        this.bloom.apply(this.main, screen.canvas);
-        for (const layer of this.overlays) {
-            layer.after();
-            ctx.drawImage(layer.canvas, 0, 0);
-        }
-    }
-    add(names, { insertBefore = '', isBg = false, isOverlay = false } = {}) {
-        for (const name of Array.isArray(names) ? names : [names]) this._create(name, insertBefore, isBg, isOverlay);
-    }
-    _create(name, insertBefore, isBg, isOverlay) {
-        console.log(name);
-        const layers =
-            isBg ? this.bg :
-                isOverlay ? this.overlays :
-                    this.main;
-        const layer = new Layer(this.width, this.height, name);
-        this.layersMap.set(name, layer);
-        let refIndex = layers.length;
-        if (insertBefore.length > 0) {
-            const refLayer = this.get(insertBefore);
-            refIndex = layers.indexOf(refLayer);
-        }
-        layers.splice(refIndex, 0, layer);
-    }
-    get(name) { return this.layersMap.get(name) };
-}
-class Layer {//レイヤー
-    constructor(width, height, name) {
-        const canvas = this.canvas = document.createElement('canvas');
-        canvas.className = name;
-        canvas.width = width;
-        canvas.height = height;
-        this.isUpdate = true;
-        this.blur = undefined;
-        this.isPauseBlur = false;
-    }
-    getContext() { return this.canvas.getContext('2d'); }
-    getBlurContext() { return this.blur.getContext('2d'); }
-    clear() { return this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
-    clearBlur() { return this.getBlurContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
-    enableBlur() {
-        if (this.blur) return;
-        const blur = this.blur = document.createElement('canvas');
-        blur.width = this.canvas.width;
-        blur.height = this.canvas.height;
-    }
-    before() {
-        if (!this.isUpdate) return;
-        const ctx = this.getContext();
-        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        if (this.blur) {
-            ctx.drawImage(this.blur, 0, 0);
-        }
-    }
-    after() {
-        if (!this.isUpdate) return;
-        if (this.blur && !this.isPauseBlur) {
-            const blurCtx = this.getBlurContext();
-            blurCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-            blurCtx.globalAlpha = 0.7;
-            blurCtx.drawImage(this.canvas, 0, 0);
-        }
-    }
 }
 class Input {//入力
     constructor(vpad) {
@@ -720,12 +581,21 @@ export class Rect {//矩形
 }
 export class Mono {//ゲームオブジェクト
     constructor(...args) {
+        this.name = '';
         this.isExist = this.isActive = true;
         this.isRemoved = false;
         this.mixs = [];
         this.childIndex = -1;
         this.remove = () => { };
         this.addMix(args);
+    }
+    resist(name, mono) {
+        this.name = name;
+        Game.resist(name, mono);
+    }
+    expel() {
+        if (this.name === '') return;
+        Game.expel(this.name);
     }
     addMix(mixCtor, target, isAfter = false) {
         const mixCtors = Util.isIterable(mixCtor) ? mixCtor : [mixCtor];
@@ -827,11 +697,11 @@ export function* waitForFrag(func) {//関数の戻り値がtrueになるまで�
     while (!func()) yield undefined;
     return true;
 }
-export function waitForTime(time) {//指定した時間まで待機
+export function waitForTime(time, func = undefined) {//指定した時間まで待機
     const state = { time };
     const generator = (function* () {
         state.time -= Game.delta;
-        while (state.time > 0) {
+        while (state.time > 0 && !func?.()) {
             state.time -= Game.delta;
             yield undefined;
         }
@@ -917,6 +787,7 @@ export class Child {//子持ちコンポーネント
         obj.childIndex = this.objs.length;
         obj.remove = () => {
             if (!obj.isExist) return;
+            obj.expel();
             obj.isExist = false;
             obj.isActive = true;
             obj.baseReset();
@@ -929,6 +800,7 @@ export class Child {//子持ちコンポーネント
     add(obj) {
         obj.remove = () => {
             if (!obj.isExist) return;
+            obj.expel();
             obj.isExist = false;
             obj.isRemoved = true;
             Child.grave.add(this);
@@ -945,7 +817,11 @@ export class Child {//子持ちコンポーネント
         for (const obj of this.objs) obj.baseUpdate();
     }
     draw(ctx) {
-        let currentCtx = this.drawlayer !== '' ? Game.layers.get(this.drawlayer).getContext() : ctx;
+        let currentCtx = ctx;
+        if (this.drawlayer === 'default') {
+            currentCtx = Game.screen.getContext();
+        } else if (this.drawlayer !== '') currentCtx = Game.get(this.drawlayer).getContext();
+        //for (const obj of this.objs) obj.baseDraw(ctx);
         for (const obj of this.objs) obj.baseDraw(currentCtx);
     }
     each(func) {
@@ -1382,6 +1258,111 @@ export class Tofu extends Mono {//四角型描画
         return this;
     }
 }
+export class Picture {//絵コンポーネント
+    static requires = [Pos, Color];
+    constructor() {
+        this.canvas = document.createElement('canvas');
+    }
+    set(width, height, drawer = undefined) {
+        this.canvas.width = width;
+        this.canvas.height = height;
+        if (!drawer) return;
+        const ctx = this.getContext();
+        ctx.save();
+        this.owner.color.applyContext(ctx);
+        drawer(ctx);
+        ctx.restore();
+    }
+    getContext() { return this.canvas.getContext('2d') }
+    clear() { this.getContext().clearRect(0, 0, this.canvas.width, this.canvas.height); }
+    draw(ctx) {
+        ctx.save();
+        this.owner.color.applyContext(ctx);
+        ctx.drawImage(this.canvas, this.owner.pos.linkX, this.owner.pos.linkY);
+        ctx.restore();
+    }
+}
+export class E extends Mono {//絵クラス
+    constructor() {
+        super(Picture);
+    }
+    set(x, y, width, height, drawer) {
+        this.pos.set(x, y, width, height);
+        this.picture.set(width, height, drawer);
+    }
+}
+export class Afterimage extends Mono {//残像
+    constructor(width, height, name) {
+        super(Picture);
+        this.resist(name, this);
+        this.picture.set(width, height);
+        const blur = this.blur = document.createElement('canvas');
+        blur.width = width;
+        blur.height = height;
+        this.isPauseBlur = false;
+    }
+    getContext() { return this.picture.getContext() }
+    update() {
+        this.picture.clear();
+        this.picture.getContext().drawImage(this.blur, 0, 0);
+    }
+    draw(ctx) {
+        this.picture.draw(ctx);
+        if (this.isPauseBlur) return;
+        const blurCtx = this.blur.getContext('2d');
+        blurCtx.clearRect(0, 0, this.blur.width, this.blur.height);
+        blurCtx.globalAlpha = 0.7;
+        blurCtx.drawImage(this.picture.canvas, 0, 0);
+    }
+}
+
+export class BloomEffect extends Mono {//ブルーム
+    constructor(width, height, name) {
+        super(Picture);
+        this.resist(name, this);
+        this.picture.set(width, height);
+        this._createBuffers(width, height);
+    }
+    _createBuffers(width, height) {
+        this.buffers = [];
+        const createbuffer = (index) => {
+            const bufCanvas = document.createElement('canvas');
+            const scale = 2 ** index;
+            const bufWidth = width / scale, bufHeight = height / scale;
+            bufCanvas.width = Math.floor(bufWidth);
+            bufCanvas.height = Math.floor(bufHeight);
+            const bufCtx = bufCanvas.getContext('2d');
+            if (index > 1) bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
+            bufCtx.globalAlpha = 0.2;
+            return bufCanvas;
+        }
+        for (let i = 0; i < 3; i++) {
+            this.buffers[i] = createbuffer(i + 1);
+        }
+    }
+    getContext() { return this.picture.getContext() }
+    update() {
+        if (!cfg.graphics.bloom) return;
+        this.picture.clear();
+    }
+    draw(ctx) {
+        if (!cfg.graphics.bloom) return;
+        for (const buffer of this.buffers) {
+            const w = buffer.width;
+            const h = buffer.height;
+            const bufCtx = buffer.getContext('2d');
+            bufCtx.clearRect(0, 0, w, h);
+            bufCtx.drawImage(this.picture.canvas, 0, 0, w, h);
+        }
+        const offCtx = this.getContext();
+        offCtx.globalCompositeOperation = "lighter";
+        for (const buffer of this.buffers) {
+            offCtx.drawImage(buffer, 0, 0, this.picture.canvas.width, this.picture.canvas.height);
+        }
+        offCtx.globalCompositeOperation = "source-over";
+        this.picture.draw(ctx);
+    }
+}
 export class Moji {//文字コンポーネント
     static requires = [Pos, Color];
     static sizeCache = new Map();
@@ -1448,7 +1429,7 @@ export class Moji {//文字コンポーネント
         let textSize = Moji.sizeCache.get(this.cacheKey);
         if (!textSize) {
             let textWidth = 0, textHeight = 0, baselineCollects = [];
-            const ctx = Game.layers.get('main').getContext();
+            const ctx = Game.screen.getContext();
             this._applyContext(ctx);
             for (let i = 0; i < this.textSplit.length; i++) {
                 if (i > 0) textHeight = this.lineHeight * i;
@@ -1602,7 +1583,7 @@ export class Gauge extends Mono {//ゲージ
 export class Watch extends Mono {//変数の値を表示
     constructor() {
         super(Pos, Child);
-        this.child.drawlayer = 'ui';
+        //this.child.drawlayer = 'ui';
         this.child.addCreator('label', () => new Label());
     }
     clear() {

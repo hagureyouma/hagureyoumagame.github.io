@@ -2022,7 +2022,7 @@ class SceneHighscore extends Mono {//ハイスコア画面
         while (true) {
             yield undefined;
             if (Game.input.isPress('x')) break;
-            if (Game.input.isPress('z')) {
+            if (Game.input.isPress('c')) {
                 if (this.isNewRecord) break;
                 switch (yield* new SceneConfirm(text.highscore_clear_confirm, [text.done, text.cancel], { isPause: true, isDialog: true }).coroDefault(1)) {
                     case text.done:
@@ -2117,7 +2117,7 @@ const text = {//テキスト
     pause: 'ポーズ', resume: 'ゲームを続ける', restart: '最初からやり直す', returntitle: 'タイトルに戻る',
     stageclear: 'ステージ　クリア', total: '合計', stage: 'ステージ', time: 'タイム', point: 'スコア', ko: '撃破数',
     gameover: 'ゲームオーバー', continue: 'コンティニュー',
-    highscore_clear_key: 'Zキーでハイスコア消去',
+    highscore_clear_key: 'Cキーでハイスコア消去',
     highscore_clear_confirm: 'ハイスコアを消去します。\nよろしいですか？',
     staffs: ['制作', 'プログラム', 'グラフィック', 'テストプレイ'],
     author: 'はぐれヨウマ'

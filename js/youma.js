@@ -103,7 +103,7 @@ export class Game {//ゲーム本体
         Game.root.child.add(Game.main = new Mono(Child));
         if (cfg.graphics.bloom) {
             Game.main.child.drawlayer = 'bloom';
-            Game.root.child.add(Game.bloom = new BloomEffect(Game.width, Game.height, 'bloom'));
+            Game.root.child.add(Game.bloom = new Bloom(Game.width, Game.height, 'bloom'));
         }
     }
     static get width() { return Game.screen.width };
@@ -1316,7 +1316,7 @@ export class Afterimage extends Mono {//残像
     }
 }
 
-export class BloomEffect extends Mono {//ブルーム
+export class Bloom extends Mono {//ブルーム
     constructor(width, height, name) {
         super(Picture);
         this.resist(name, this);

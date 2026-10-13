@@ -1815,7 +1815,7 @@ class ScenePlay extends Mono {//プレイ画面
         this.player.collision.isEnable = false;
     }
     * _phaseInvasion() {//道中
-        const items = ['bomb', 'powerupShot1', 'powerupShield1'];        
+        const items = ['bomb', 'powerupShot1', 'powerupShield1'];
         const itemSpawnRate = 0.1;
         let itemSpawnCounter = 0;
         const appears = ['crow', 'dove', 'crossdove', 'obake', 'bigcrow'];
@@ -1951,9 +1951,9 @@ class SceneConfirm extends Mono {//確認メッセージ
     }
     *coroDefault(firtsIndex) {
         Game.pushScene(this);
-        Game.get('effect').isPauseBlur = this.isPause;
+        if (Game.get('effect')) Game.get('effect').isPauseBlur = this.isPause;
         const result = yield* this.menu.coroSelect(firtsIndex);
-        Game.get('effect').isPauseBlur = false;
+        if (Game.get('effect')) Game.get('effect').isPauseBlur = false;
         Game.popScene();
         return result;
     }

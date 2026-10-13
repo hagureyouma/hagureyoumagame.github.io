@@ -1332,7 +1332,7 @@ export class Bloom extends Mono {//ブルーム
             bufCanvas.width = Math.floor(bufWidth);
             bufCanvas.height = Math.floor(bufHeight);
             const bufCtx = bufCanvas.getContext('2d');
-            bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
+            if (index > 1) bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
             bufCtx.globalAlpha = 0.2;
             return bufCanvas;
         }

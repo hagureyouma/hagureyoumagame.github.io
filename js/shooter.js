@@ -298,7 +298,11 @@ class Player extends Mono {//自機
     }
     resetPos() {
         this.pos.x = Game.width * 0.5;
-        this.pos.y = Game.height - (this.pos.height * 0.5);
+        this.pos.y = (Game.height - this.pos.height * 0.5) - (Game.height * 0.05);
+    }
+    resetCoro() {
+        this.coro.start(this.coroShotOnce(), 'shot');
+        this.coro.start(this.coroBomb(), 'bomb');
     }
     respawnRequied() {
         this.unit.playSpawnEffect();
@@ -321,8 +325,7 @@ class Player extends Mono {//自機
         ctx.restore();
     }
     *coroAction() {
-        this.coro.start(this.coroShotOnce(), 'shot');
-        this.coro.start(this.coroBomb());
+        this.resetCoro();
         while (true) {
             yield undefined;
             this.move.vx = this.move.vy = 0;
@@ -404,7 +407,7 @@ class Player extends Mono {//自機
         }
     }
     *coroBomb() {
-        yield* waitForTime(0.2);
+        yield* waitForTime(0.4);
         while (true) {
             yield undefined;
             if (shared.playdata.total.bomb <= 0) continue;
@@ -1578,7 +1581,7 @@ class SceneTitle extends Mono {//タイトル画面
         //キー割り当て
         Game.input.keybind('z', 'z', { button: 1 });
         Game.input.keybind('x', 'x', { button: 0 });
-        Game.input.keybind('c', 'c', { button: 2 });
+        Game.input.keybind('c', 'c', { button: 3 });
         //セーブデータのロード
         shared.load(cfg.saveData.name);
     }
@@ -1812,10 +1815,8 @@ class ScenePlay extends Mono {//プレイ画面
         this.player.collision.isEnable = false;
     }
     * _phaseInvasion() {//道中
-        const items = ['bomb', 'powerupShot1', 'powerupShield1'];
-        //const items = ['powerupShot1', 'powerupShield1'];
-        const itemSpawnRate = 0.025;
-        //const itemSpawnRate = 1;
+        const items = ['bomb', 'powerupShot1', 'powerupShield1'];        
+        const itemSpawnRate = 0.1;
         let itemSpawnCounter = 0;
         const appears = ['crow', 'dove', 'crossdove', 'obake', 'bigcrow'];
         const phaseSec = 30;
@@ -1833,7 +1834,7 @@ class ScenePlay extends Mono {//プレイ画面
             this.spawner.formation(Baddie.name, formation, data, -1, this.baddies, this.baddiesbullets, this, { count: spawnCount });
             yield* waitForTime((spawnCount * 1.5 + Util.rand(1) ? 1 : -1) * spawnIntervalFactor);
             //アイテム出現    
-            if (itemSpawnCounter >= 20 || Util.rand(100) < itemSpawnRate * 100) {//敵が20隊出現する毎に2.5%の確率
+            if (itemSpawnCounter >= 15 || Util.rand(100) < itemSpawnRate * 100) {
                 itemSpawnCounter = 0;
                 const itemName = items[Util.rand(items.length - 1)];
                 const data = datas.items[itemName];
@@ -1885,7 +1886,7 @@ class ScenePlay extends Mono {//プレイ画面
         this.player = this.playerside.child.pool(Player.name);
         this.player.set(this);
     }
-    swapPlayerDammy() {
+    swapPlayerDammy() {//自機が撃破されて画面にいない間のターゲット用ダミー
         this.playerDammy.pos.set(this.player.pos.x, this.player.pos.y, 0, 0);
         this.player = this.playerDammy;
     }
@@ -1899,11 +1900,12 @@ class ScenePlay extends Mono {//プレイ画面
         this.cloud.Run();
         this.bgDeco.Run();
         this.playerbomb.child.removeAll();
-        if (!isNextStage) {
+        if (!isNextStage) {//次のステージに進む場合にパワーアップを持続させるための分岐
             this.playerSpawn();
             this.charaUi.child.removeAll();
         } else {
             this.player.resetPos();
+            this.player.resetCoro();
             this.player.collision.isEnable = true;
         }
         this.baddies.child.removeAll();
@@ -2210,7 +2212,7 @@ const datas = {//ゲームデータ
     },
     bosses: ['greatcrow', 'greatdove'],
     player: {
-        data: new CharaData(CharaData.type.player, 'player', 'Cat', EMOJI.CAT, color.chara.black, 40, 2, 0, { defeatEffect: 'star2' }),
+        data: new CharaData(CharaData.type.player, 'player', 'Cat', EMOJI.CAT, color.chara.black, 40, 1, 0, { defeatEffect: 'star2' }),
         moveSpeed: 300,
         bulletSpeed: 600,
         firelate: 1 / 20,

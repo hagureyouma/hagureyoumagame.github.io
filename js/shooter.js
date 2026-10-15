@@ -224,20 +224,21 @@ class UnitAction {//ユニットの特殊な動き
     reset() {
         this.setGuided(0, 0, undefined, 0);
     }
-    setGuided(vx, vy, target, speed) {
-        this.target = target;
+    setGuided(vx, vy, targetfunc, speed) {
+        this.targetfunc = targetfunc;
         this.horming = speed;
         this.baseX = vx;
         this.baseY = vy;
         this.targetBeforeX = this.targetBeforeY = 0;
     }
     update() {
-        if (this.horming !== 0 && this.target.isExist) {
+        const target = this.targetfunc?.();
+        if (this.horming !== 0 && target?.isExist) {//todo　ターゲットが撃破された後、参照先を新しいターゲットに切り替える必要がある
             const pos = this.owner.pos;
-            const tPos = this.target.pos;
+            const tPos = target.pos;
             let tx = this.targetBeforeX;
             let ty = this.targetBeforeY;
-            if (this.target.isExist) {
+            if (target.isExist) {//対象が生存している場合だけ動く
                 tx = this.targetBeforeX = tPos.linkX;
                 ty = this.targetBeforeY = tPos.linkY;
             }
@@ -284,13 +285,7 @@ class Player extends Mono {//自機
             this.unit.powerup.condition('powerupShield1');//シールドへの被弾
         }
         this.unit.onDefeat = () => {
-            scene.swapPlayerDammy();
-            shared.playdata.total.remains--;
-            if (shared.playdata.total.remains < 0) return;
-            this.unit.scene.coro.start(function* () {
-                yield* waitForTime(1);
-                scene.playerRespawn();
-            }.call(this));
+            this.unit.scene.playerDefeat();
         }
         this.moji.set(Util.parseUnicode(data.char), 0, 0, { size: data.size, color: data.color, font: cfg.font.emoji.name, align: 1, valign: 1, useImagecache: true });
         this.collision.set(this.pos.width * datas.player.collisionVias, this.pos.height * datas.player.collisionVias);
@@ -694,7 +689,7 @@ class Baddie extends Mono {//敵キャラ
         },
         obake: function* (user, pattern, bullets, scene) {
             const moveSpeed = 100;
-            user.unit.action.setGuided(0, 100, scene.player, moveSpeed);
+            user.unit.action.setGuided(0, 100, () => scene.player, moveSpeed);
         },
         boss1: function* (user, pattern, bullets, scene) {
             //ボス初期化
@@ -752,9 +747,9 @@ class Baddie extends Mono {//敵キャラ
                 user.coro.stopAll('main');
                 user.unit.defeatRequied();
                 const pos = user.pos;
-                for (let i = 0; i < 16; i++) {
+                for (let i = 0; i < 8; i++) {
                     user.unit.playDefeatEffect(pos.left + Util.rand(pos.width), pos.top + Util.rand(pos.height));
-                    yield* waitForTime(1 / 8);
+                    yield* waitForTime(1 / 4);
                 }
                 user.remove();
             };
@@ -1000,9 +995,9 @@ class Baddie extends Mono {//敵キャラ
                 user.coro.stopAll('main');
                 user.unit.defeatRequied();
                 const pos = user.pos;
-                for (let i = 0; i < 16; i++) {
+                for (let i = 0; i < 8; i++) {
                     user.unit.playDefeatEffect(pos.left + Util.rand(pos.width), pos.top + Util.rand(pos.height));
-                    yield* waitForTime(1 / 8);
+                    yield* waitForTime(1 / 4);
                 }
                 user.remove();
             };
@@ -1127,12 +1122,12 @@ class Baddie extends Mono {//敵キャラ
             const guidedSplitShot = function* () {
                 const bulletlist = [];
                 for (let i = 0; i < 2; i++) {
-                    bulletlist.push(...bullets.multiWay(user.pos.x, user.pos.y, { deg: Util.rand(120, 60), space: 25, count: 1, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1.75 ,isOutOfScreenToRemove:false}));
+                    bulletlist.push(...bullets.multiWay(user.pos.x, user.pos.y, { deg: Util.rand(120, 60), space: 25, count: 1, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1.75, isOutOfScreenToRemove: false }));
                 }
                 yield* waitForTime(1.5);
                 for (let i = 0; i < 2; i++) {
                     const bullet = bulletlist[i];
-                    bullets.multiWay(bullet.pos.x, bullet.pos.y, { deg: 90, space: 72, count: 5, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1,isOutOfScreenToRemove:true });
+                    bullets.multiWay(bullet.pos.x, bullet.pos.y, { deg: 90, space: 72, count: 5, speed: 500, firstSpeed: 0, accelTime: 3, color: datas.color.bullet.enemyGuided, guided: scene.player, guidedSpeed: 1, isOutOfScreenToRemove: true });
                     bullet.remove();
                 }
             };
@@ -1236,12 +1231,12 @@ class Attack extends Mono {//攻撃
     }
     vanish(effect) {
         const size = this.pos.width;
-        effect.emittCircle(5, size * 3, 0.75, size * 2, this.color.value, this.pos.linkX, this.pos.linkY, false, { emoji: EMOJI.STAR });
+        effect.emitt(0, 0, 0.25, size, this.color.value, this.pos.linkX, this.pos.linkY, false, { emoji: EMOJI.STAR, scale: 4 });
         this.remove();
     }
 }
 class BulletBox extends Mono {//弾
-    constructor() {
+    constructor(effect) {
         super(Child);
         this.reset();
         this.child.drawlayer = 'effect';
@@ -1278,19 +1273,19 @@ class Bomb extends Mono {//ボム
         this.pos.set(x, y, Game.height * 2, Game.height * 2);
         this.pos.align = 1;
         this.pos.valign = 1;
+        this.bullet.set(10, 100, true, undefined);
         this.scale.set(0, 0);
         this.collision.isCircle = true;
         this.brush.circle();
         this.color.setColor('white');
         this.update = () => {
+            if (!this.scale.ease.isActive) {
+                this.remove();
+                return;
+            }
             this.color.alpha = 1 - this.scale.ease.percentage;
         };
-        this.bullet.set(10, 100, true, undefined);
-        this.coro.start(this.coroDefault(), 'main');
-    }
-    *coroDefault() {
-        yield* this.scale.set(1, 1, 1, Ease.sineout);
-        this.remove();
+        this.scale.set(1, 1, 1, Ease.sineout);
     }
 }
 class BombCarrier extends Mono {//ボムの保持
@@ -1550,6 +1545,9 @@ class SceneDebug extends Mono {//デバッグルーム
         b.pos.set(16, 16, 8, 8);
         b.color.setColor('#ff83a0');
         this.child.add(b);
+
+        this.child.add(this.effect = new Particle());
+        this.effect.emitt(0, 0, 0.5, 8, 'red', 100, 100, false, { emoji: EMOJI.STAR, scale: 4 });
     }
     *coroDefault() {
         Game.pushScene(this);
@@ -1622,7 +1620,7 @@ class SceneTitle extends Mono {//タイトル画面
             this.title.hide();
             if (result === text.highscore) yield* new SceneHighscore().coroDefault();
             if (result === text.credit) yield* new SceneCredit().coroDefault();
-            //if (result === '実験室') yield* new SceneDebug().coroDefault();
+            if (result === '実験室') yield* new SceneDebug().coroDefault();
             this.title.show();
         }
     }
@@ -1646,7 +1644,7 @@ class TitleMenu extends Mono {//タイトルメニュー
         this.menu.add(text.start);
         this.menu.add(text.highscore);
         this.menu.add(text.credit);
-        //this.menu.add('実験室');
+        this.menu.add('実験室');
         //操作方法
         this.child.add(this.explanation1 = new Label(text.explanation1, Game.width * 0.5, Game.height - (cfg.fontSize.normal * 4), { size: cfg.fontSize.normal, align: 1, valign: 2 }));
         this.child.add(this.explanation2 = new Label(text.explanation2, Game.width * 0.5, Game.height - cfg.fontSize.normal * 3, { size: cfg.fontSize.normal, align: 1, valign: 2 }));
@@ -1685,7 +1683,6 @@ class ScenePlay extends Mono {//プレイ画面
         this.child.add(this.effect = new Particle());
         this.effect.child.drawlayer = 'effect';
         this.child.add(this.afterimage = new Afterimage(Game.width, Game.height, 'effect'));
-        const ttt = Game.get('effect');
         //テロップ
         this.child.add(this.telop = new Label('', Game.width * 0.5, Game.height * 0.5, { size: cfg.fontSize.medium, color: cfg.theme.highlite, align: 1, valign: 1 }));
         this.telop.hide();
@@ -1898,9 +1895,15 @@ class ScenePlay extends Mono {//プレイ画面
         this.player = this.playerside.child.pool(Player.name);
         this.player.set(this);
     }
-    playerRespawn() {
-        this.playerSpawn();
-        this.player.respawnRequied();
+    playerDefeat() {
+        this.swapPlayerDammy();
+        shared.playdata.total.remains--;
+        if (this.isFailure) return;
+        this.coro.start(function* () {
+            yield* waitForTime(1);
+            this.playerSpawn();
+            this.player.respawnRequied();
+        }.call(this));
     }
     resetStage(isNextStage = false) {
         this.isClear = false;

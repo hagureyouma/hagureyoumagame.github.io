@@ -9,7 +9,7 @@ export const cfg = {//設定
         height: 720
     },
     graphics: {
-        bloom: false
+        bloom: true
     },
     font: {
         default: {
@@ -1124,6 +1124,7 @@ export class Ease {//イージング
         const easingDif = easing - this.beforeEasing;
         this.beforeEasing = easing;
         if (!this.isLoop && this.elaps >= 1) {
+            this.elaps = 1;
             this.time = 0;
             this.isDelta = this.endToDelta;
             if (this.isDelta) return Game.delta;
@@ -1335,8 +1336,8 @@ export class Bloom extends Mono {//ブルーム
             bufCtx.globalAlpha = 0.2;
             return bufCanvas;
         }
-        for (let i = 0; i < 3; i++) {
-            this.buffers[i] = createbuffer(i + 1);
+        for (let i = 0; i < 2; i++) {
+            this.buffers[i] = createbuffer(i + 2);
         }
     }
     getContext() { return this.picture.getContext() }
@@ -1447,6 +1448,7 @@ export class Moji {//文字コンポーネント
         this.baselineCollects = textSize.baselineCollects;
     }
     _applyContext(ctx) {
+        if (ctx.font === this.fontStyle) return;
         ctx.font = this.fontStyle;
     }
     draw(ctx) {
@@ -1489,7 +1491,7 @@ export class Particle extends Mono {//パーティクル
     constructor() {
         super(Child);
         this.child.addCreator(Particle.BrushParticleName, () => {
-            const t = new Mono(Move, Brush);
+            const t = new Mono(Scale, Move, Brush);
             t.update = () => {
                 if (!t.move.isActive) t.remove();
                 t.color.alpha = 1 - t.move.percentage;
@@ -1497,7 +1499,7 @@ export class Particle extends Mono {//パーティクル
             return t;
         });
         this.child.addCreator(Particle.MojiParticleName, () => {
-            const t = new Mono(Move, Moji);
+            const t = new Mono(Scale, Move, Moji);
             t.update = () => {
                 if (!t.move.isActive) t.remove();
                 t.color.alpha = 1 - t.move.percentage;
@@ -1505,38 +1507,39 @@ export class Particle extends Mono {//パーティクル
             return t;
         });
     }
-    emitt(distance, time, size, color, x, y, { emoji, angle, isRandomAngle, rotate } = {}) {
-
+    emitt(deg, distance, time, size, color, x, y, isConverge = false, options = {}) {
+        const { emoji: emoji = undefined, angle = 0, isRandomAngle = false, rotate = 0, scale = 1 } = options;
+        const degOffset = 90;
+        let t, cx, cy, cd = deg + degOffset;
+        if (!isConverge) {
+            cx = x;
+            cy = y;
+        } else {
+            cx = x + Util.degToX(cd) * distance;
+            cy = y + Util.degToY(cd) * distance;
+            cd = (cd + 180) % 360;
+        }
+        if (emoji) {
+            t = this.child.pool(Particle.MojiParticleName);
+            t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
+            t.pos.angle = angle;
+            if (isRandomAngle) t.pos.angle = (t.pos.angle + Util.rand(359)) % 360;
+            t.move.rotate = rotate;
+        } else {
+            t = this.child.pool(Particle.BrushParticleName);
+            t.color.setColor(color);
+            t.color.alpha = 1;
+            t.pos.set(cx, cy, size, size);
+            t.pos.align = 1;
+            t.pos.valign = 1;
+        }
+        t.move.relativeDegForTime(cd, distance, time);
+        if (scale !== 1) t.scale.set(scale, scale, time, Ease.sineout);
     }
     emittCircle(count, distance, time, size, color, x, y, isConverge = false, options = {}) {
-        const { emoji: emoji = undefined, angle = 0, isRandomAngle = false, rotate = 0 } = options;
         const deg = 360 / count;
-        const degOffset = 90;
         for (let i = 0; i < count; i++) {
-            let t, cx, cy, cd = deg * i + degOffset;
-            if (!isConverge) {
-                cx = x;
-                cy = y;
-            } else {
-                cx = x + Util.degToX(cd) * distance;
-                cy = y + Util.degToY(cd) * distance;
-                cd = (cd + 180) % 360;
-            }
-            if (emoji) {
-                t = this.child.pool(Particle.MojiParticleName);
-                t.moji.set(Util.parseUnicode(emoji), cx, cy, { size: size, color: color, font: cfg.font.emoji.name, align: 1, valign: 1, useImageCache: true });
-                t.pos.angle = angle;
-                if (isRandomAngle) t.pos.angle = (t.pos.angle + Util.rand(359)) % 360;
-                t.move.rotate = rotate;
-            } else {
-                t = this.child.pool(Particle.BrushParticleName);
-                t.color.setColor(color);
-                t.color.alpha = 1;
-                t.pos.set(cx, cy, size, size);
-                t.pos.align = 1;
-                t.pos.valign = 1;
-            }
-            t.move.relativeDegForTime(cd, distance, time);
+            this.emitt(deg * i, distance, time, size, color, x, y, isConverge, options);
         }
     }
 }

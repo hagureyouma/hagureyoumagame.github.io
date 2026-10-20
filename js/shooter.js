@@ -1792,7 +1792,7 @@ class ScenePlay extends Mono {//プレイ画面
                 }
                 continue;
             }
-            if (Game.input.isPress('Y')) {//ポーズメニューを開く
+            if (Game.input.isPress('X')) {//ポーズメニューを開く
                 this.pause();
                 switch (yield* new SceneConfirm(text.pause, [text.resume, text.restart, text.returntitle], { isPause: true, isEnableCancel: true }).coroDefault()) {
                     case text.restart:
@@ -2157,30 +2157,30 @@ class CharaData {//キャラデータ
         this.bomb = bomb;
     }
 }
-const color = {//色データ
+const color = {//色データ    
     text: '#F4EEF7',
-    texthighlight: '#ffd417',
+    texthighlight: '#ffff00',
     highsky: '#8581D0',
     lowsky: '#E6C4DC',
     cloud: '#BBA2DA',
     moon: '#e0d8ce',
-    moon2: '#F3C100',
     chara: {
-        black: '#1d1729',
-        yellow: '#ffd417'
+        black: '#111111',
+        yellow: '#ffff00'
     },
     bullet: {
-        PlayerNormal: '#8FE3E8',
-        PlayerPower1: '#e88fe8',
-        enemyNormal1: '#ff1717',
-        enemyNormal2: '#ffd417',
-        enemyNormal3: '#17ffa6',
-        enemyAim: '#17f0ff',
-        enemyGuided: '#f4e4f5'
+        PlayerNormal: '#00FFAA',
+        PlayerPower1: '#FF00FF',
+        enemyNormal1: '#FF0000',
+        enemyNormal2: '#FFFF00',
+        enemyNormal3: '#ffbb77',
+        enemyAim: '#00ffff',
+        enemyGuided: '#FFFFFF'
     },
     item: {
-        playerShield1: '#8fe8b4',
+        playerShield1: '#00FF00',
     }
+
 };
 const datas = {//ゲームデータ
     color: color,

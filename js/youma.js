@@ -30,6 +30,9 @@ export const cfg = {//設定
         large: 50,
         big: 60
     },
+    text: {
+        button: ['B', 'A', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'BACK', 'START', 'LSB', 'RSB', '↑', '↓', '←', '→']
+    },
     theme: {
         bg: "#000000",
         text: "#ffffff",
@@ -37,7 +40,7 @@ export const cfg = {//設定
     },
     input: {
         repeatWaitFirst: 0.25,
-        repeatWait: 0.125
+        repeatWait: 0.125,
     },
     vpad: {
         virtical: 110,
@@ -48,6 +51,7 @@ export const cfg = {//設定
         name: "saveData"
     },
     debug: {
+        debugmode: true,
         drawPosSizeRect: false
     }
 }
@@ -78,7 +82,7 @@ export class Game {//ゲーム本体
         Game.screen = new Screen();
         Game.vpad = new VirtualPad(Game.screen);
         Game.input = new Input(Game.vpad);
-        Game._createMono();
+        Game._createObject();
         Game.time = new Time();
         Game.screen.resize();
         if (!await Game.asset.load([cfg.font.default, cfg.font.emoji])) return;
@@ -92,12 +96,10 @@ export class Game {//ゲーム本体
         Game.root.baseUpdate();
         Child.clean();
         Game.screen.clear();
-        //Game.layers.before();
         Game.root.baseDraw(Game.screen.getContext());
-        //Game.layers.after(Game.screen);
         requestAnimationFrame(Game._mainloop);
     }
-    static _createMono() {
+    static _createObject() {
         Game.root = new Mono(Coro, Child);
         Game.root.child.add(Game.main = new Mono(Child));
         if (cfg.graphics.bloom) {
@@ -116,6 +118,10 @@ export class Game {//ゲーム本体
     static get(name) { return Game.registry.get(name) }
     static resist(name, obj) { Game.registry.set(name, obj) }
     static expel(name) { Game.registry.delete(name) }
+    static tags = new Map();
+    static addTag(key, value) { Game.tags.set(key, value); }
+    static hasTag(key) { return Game.tags.has(key); }
+    static tag(text) { return text.replace(/\{(\w+)\}/g, (match, key) => { return Game.tags.get(key)?.() ?? match }); }
 }
 class Time {//フレームタイム
     constructor() {
@@ -254,75 +260,145 @@ class Screen {//画面
 }
 class Input {//入力
     constructor(vpad) {
-        this.keys = new Map();
-        this.padIndex;
+        this.state = {
+            key: {},
+            pad: {},
+            action: {}
+        };
+        this.device = this.state.key;
+        this.axesmap = [14, 15, 12, 13];
+        this.pad = undefined;
+        this.asigns = new Map();
         this.vpad = vpad;
         this._setEventListener();
-        this._setDefaultKeyBinds();
+        this._setDefaultAsigns();
+        this._initPad();
     }
     _setEventListener() {
         addEventListener('keydown', this._keyEvent(true));
         addEventListener('keyup', this._keyEvent(false));
-        addEventListener('gamepadconnected', e => this.padIndex = e.gamepad.index);
-        addEventListener('gamepaddisconnected', e => this.padIndex = undefined);
+        addEventListener('gamepadconnected', e => {
+            this._connectPad(e.gamepad.index);
+            this._initPadState(e.gamepad.buttons.length);
+        });
+        addEventListener('gamepaddisconnected', e => {
+            if (e.gamepad.index === this.pad) this.pad = undefined;
+            this._initPad();
+        });
     }
-    _setDefaultKeyBinds() {
-        this.keybind('left', 'ArrowLeft', { button: 14, axes: 0 });
-        this.keybind('right', 'ArrowRight', { button: 15, axes: 1 });
-        this.keybind('up', 'ArrowUp', { button: 12, axes: 2 });
-        this.keybind('down', 'ArrowDown', { button: 13, axes: 3 });
+    _initPad() {
+        const pads = navigator.getGamepads();
+        let buttonCount = this.vpad.buttons.length;
+        for (let i = 0; i < pads.length; i++) {
+            if (!pads[i]) continue;
+            this._connectPad(i);
+            buttonCount = Math.max(buttonCount, pads[i].buttons.length);
+            break;
+        }
+        this._initPadState(buttonCount);
     }
+    _connectPad(index) {
+        if (this.pad !== undefined) return;
+        this.pad = index;
+    }
+    _initPadState(buttonCount) {
+        if (Object.entries(this.state.pad).length >= buttonCount) return;
+        for (let i = 0; i < buttonCount; i++) {
+            this.state.pad[i] = this._createInputState();
+        }
+    }
+    _createInputState() { return { buffer: false, before: false, current: false } }
     _keyEvent(frag) {
         return e => {
             e.preventDefault();
-            for (const key of this.keys.values()) {
-                if (key.key !== e.key) continue;
-                key.buffer = frag;
-                return;
-            }
+            const state = this.state.key[e.key] ??= this._createInputState();
+            state.buffer = frag;
+            this.device = this.state.key;
         };
     }
-    update() {
-        //キーボード
-        for (const key of this.keys.values()) {
+    _setDefaultAsigns() {
+        this.asign('left', 'ArrowLeft', 14, '←', '←');
+        this.asign('right', 'ArrowRight', 15, '→', '→');
+        this.asign('up', 'ArrowUp', 12, '↑', '↑');
+        this.asign('down', 'ArrowDown', 13, '↓', '↓');
+        this.asign('A', 'z', 1);
+        this.asign('B', 'x', 0);
+        this.asign('X', 'c', 2);
+        this.asign('Y', 'v', 3);
+    }
+    _updateState(state) {
+        for (const key of Object.values(state)) {
             key.before = key.current;
             key.current = key.buffer;
         }
-        //ゲームパッド
-        if (this.padIndex !== undefined) {
-            const pad = navigator.getGamepads()[this.padIndex];
-            for (const key of this.keys.values()) {
-                if (key.button > -1) key.current |= pad.buttons[key.button].pressed || this.vpad.buttons[key.button];
-                if (key.axes > -1) {
-                    const index = Math.floor(key.axes / 2);
-                    const sign = -1 + (key.axes % 2 * 2)
-                    key.current |= pad.axes[index] * sign > 0.5;
-                }
+    }
+    _recivePad(buttons, axes, deadzone) {
+        for (let i = 0; i < buttons.length; i++) {
+            if (this.device !== this.state.pad && buttons[i].pressed) this.device = this.state.pad;
+            this.state.pad[i].current |= buttons[i].pressed;
+        }
+        for (let i = 0; i < this.axesmap.length; i++) {
+            const index = Math.floor(i / 2);
+            const sign = -1 + (i % 2 * 2)
+            if (this.device !== this.state.pad && Math.abs(axes[index]) > deadzone) {
+                this.device = this.state.pad;
             }
+            this.state.pad[this.axesmap[i]].current |= axes[index] * sign > deadzone;
+        }
+    }
+    update() {
+        this._updateState(this.state.key);
+        this._updateState(this.state.pad);
+        //ゲームパッド
+        if (this.pad !== undefined) {
+            const pad = navigator.getGamepads()[this.pad];
+            this._recivePad(pad.buttons, pad.axes, 0.5);
         }
         //仮想パッド
         if (this.vpad.isEnable) {
-            for (const key of this.keys.values()) {
-                if (key.button > -1) key.current |= this.vpad.buttons[key.button];
-                if (key.axes > -1) {
-                    const index = Math.floor(key.axes / 2);
-                    const sign = -1 + (key.axes % 2 * 2)
-                    key.current |= this.vpad.axes[index] * sign > 0.1;
-                }
-            }
+            this._recivePad(this.vpad.buttons, this.vpad.axes, 0.1);
+        }
+        //キーボードとパッドの入力を合成
+        for (const action of this.asigns.values()) {
+            action.before = action.current;
+            action.current = Boolean(this.state.key[action.key]?.current || this.state.pad[action.button]?.current);
         }
     }
-    keybind(name, key, { button = -1, axes = -1 } = {}) {
-        this.keys.set(name, { buffer: false, before: false, current: false, key: key, button: button, axes: axes });
+    keyAsign(name, key, keyName = undefined) {
+        if (keyName === undefined) keyName = key.toUpperCase();
+        this.state.key[key] ??= this._createInputState();
+        this._asign(name, 'key', key, keyName);
     }
-    isDown(name) { return this.keys.get(name).current; }
-    isPress(name) { return this.keys.get(name).current && !this.keys.get(name).before; }
-    isUp(name) { return !this.keys.get(name).current && this.keys.get(name).before; }
+    padAsign(name, button, buttonName = undefined) {
+        if (buttonName === undefined) buttonName = cfg.text.button[button];
+        this._asign(name, 'button', button, buttonName);
+    }
+    _asign(name, type, value, text) {
+        let data = this.asigns.get(name);
+        if (!data) {
+            data = { key: undefined, button: undefined, keyName: undefined, buttonName: undefined, before: false, current: false }
+            this.asigns.set(name, data);
+        }
+        data[type] = value;
+        data[type + 'Name'] = text;
+        if (!Game.hasTag(name)) Game.addTag(name, () => this.getShowName(name));
+    }
+    asign(name, key, button, keyName = undefined, buttonName = undefined) {
+        this.keyAsign(name, key, keyName);
+        this.padAsign(name, button, buttonName);
+    }
+    isDown(name) { return this.asigns.get(name).current; }
+    isPress(name) { return this.asigns.get(name).current && !this.asigns.get(name).before; }
+    isUp(name) { return !this.asigns.get(name).current && this.asigns.get(name).before; }
+    getShowName(name) {
+        const data = this.asigns.get(name);
+        return this.device === this.state.key ? data.keyName : data.buttonName;
+    }
 }
 class VirtualPad {//仮想パッド
     constructor(screen) {
         this.axes = [0, 0];
-        this.buttons = new Array(4).fill(false);
+        this.buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
         this.stickPointerId = null;
         screen.div.insertAdjacentHTML('beforeend', `
             <div id="vpad">
@@ -446,16 +522,16 @@ class VirtualPad {//仮想パッド
             const index = Number(button.dataset.button);
             button.addEventListener('pointerdown', (e) => {
                 button.setPointerCapture(e.pointerId);
-                this.buttons[index] = true;
+                this.buttons[index].pressed = true;
                 console.log(index);
             });
             button.addEventListener('pointerup', (e) => {
                 button.releasePointerCapture(e.pointerId);
-                this.buttons[index] = false;
+                this.buttons[index].pressed = false;
             });
             button.addEventListener('pointercancel', (e) => {
                 button.releasePointerCapture(e.pointerId);
-                this.buttons[index] = false;
+                this.buttons[index].pressed = false;
             });
         });
     }
@@ -819,8 +895,9 @@ export class Child {//子持ちコンポーネント
         let currentCtx = ctx;
         if (this.drawlayer === 'default') {
             currentCtx = Game.screen.getContext();
-        } else if (this.drawlayer !== '') currentCtx = Game.get(this.drawlayer).getContext();
-        //for (const obj of this.objs) obj.baseDraw(ctx);
+        } else if (this.drawlayer !== '') {
+            currentCtx = Game.get(this.drawlayer).getContext();
+        }
         for (const obj of this.objs) obj.baseDraw(currentCtx);
     }
     each(func) {
@@ -832,9 +909,11 @@ export class Child {//子持ちコンポーネント
 }
 export class Color {//色コンポーネント
     constructor() {
+        this.ease = new Ease();
         this.reset();
     }
     reset() {
+        this.ease.reset();
         this.setColor(cfg.theme.text);
         this.alpha = this.baseAlpha = 1;
         this.func = undefined;
@@ -881,6 +960,36 @@ export class Color {//色コンポーネント
                 return;
             }
             timer -= Game.delta;
+        };
+    }
+    fadein(time, ease = Ease.linear) {
+        if (this.func) this.restore();
+        this.basealpha = 1;
+        this.alpha = 0;
+        this.ease.set(time, ease);
+        this.func = () => {
+            if (!this.ease.isActive) {
+                this.ease.reset();
+                this.restore();
+                return;
+            }
+            this.ease.getCurrent();
+            this.alpha = this.ease.percentage;
+        };
+    }
+    fadeout(time, ease = Ease.linear) {
+        if (this.func) this.restore();
+        this.basealpha = 0;
+        this.alpha = 1;
+        this.ease.set(time, ease);
+        this.func = () => {
+            if (!this.ease.isActive) {
+                this.ease.reset();
+                this.restore();
+                return;
+            }
+            this.ease.getCurrent();
+            this.alpha = 1 - this.ease.percentage;
         };
     }
     applyContext(ctx) {
@@ -961,15 +1070,12 @@ export class Move {//移動コンポーネント
         this.ease.endToDelta = true;
     }
     _setRelativeParams(x, y, speedOrTime, isTimeBased, options) {
-        const { easing = Ease.linear, isLoop = false, isfirstRand = false, min = 0 } = options;
+        const { easing = Ease.linear, isLoop = false, isfirstRand = false, min = 0, callback = undefined } = options;
         this.vx = x;
         this.vy = y;
         const distance = Util.distance(x, y);
-        if (isTimeBased) {
-            return this.ease.set(speedOrTime, easing, { isLoop, isfirstRand, min });
-        } else {
-            return this.ease.set(distance / speedOrTime, easing, { isLoop, isfirstRand, min });
-        }
+        let time = isTimeBased ? speedOrTime : distance / speedOrTime;
+        return this.ease.set(time, easing, { isLoop, isfirstRand, min, callback });
     }
     relative(x, y, speed, options = {}) {
         return this._setRelativeParams(x, y, speed, false, options);
@@ -1094,13 +1200,14 @@ export class Ease {//イージング
     static sinein = (t) => 1 - Math.cos(t * Math.PI / 2);
     static sineout = (t) => Math.sin(t * Math.PI / 2);
     static sineInOut = (t) => -(Math.cos(t * Math.PI) - 1) / 2;
+    static cubicout = (t) => 1 - Math.pow(1 - t, 3);
     constructor() {
         this.reset();
     }
     reset() {
         this.set(0);
     }
-    set(time, ease = Ease.linear, { isLoop = false, isfirstRand = false, min = 0 } = {}) {
+    set(time, ease = Ease.linear, { isLoop = false, isfirstRand = false, min = 0, callback = undefined } = {}) {
         this.isDelta = false;//イージングせず素通り
         this.endToDelta = false;//イージングが終わると素通りになる
         this.time = time;
@@ -1111,7 +1218,7 @@ export class Ease {//イージング
         this.elaps = isfirstRand ? Util.rand(1000) / 1000 : 0;
         this.beforeElaps = 0;
         this.beforeEasing = 0;
-        this.value = 0;
+        this.callback = callback;
         return waitForFrag(() => this.time === 0);
     }
     getCurrent() {
@@ -1127,6 +1234,7 @@ export class Ease {//イージング
             this.elaps = 1;
             this.time = 0;
             this.isDelta = this.endToDelta;
+            this.callback?.();
             if (this.isDelta) return Game.delta;
         }
         return (easingDif * this.range) + (Math.sign(easingDif) * this.ofs * addingTime);//結果を範囲内に収める
@@ -1332,11 +1440,11 @@ export class Bloom extends Mono {//ブルーム
             bufCanvas.width = Math.floor(bufWidth);
             bufCanvas.height = Math.floor(bufHeight);
             const bufCtx = bufCanvas.getContext('2d');
-            if (index > 1) bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
-            bufCtx.globalAlpha = 0.2;
+            bufCtx.filter = `blur(${bufWidth * 0.01}px)`;
+            bufCtx.globalAlpha = 0.5;
             return bufCanvas;
         }
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < 1; i++) {
             this.buffers[i] = createbuffer(i + 2);
         }
     }
@@ -1355,7 +1463,7 @@ export class Bloom extends Mono {//ブルーム
             bufCtx.drawImage(this.picture.canvas, 0, 0, w, h);
         }
         const offCtx = this.getContext();
-        offCtx.globalCompositeOperation = "lighter";
+        offCtx.globalCompositeOperation = "lighten";
         for (const buffer of this.buffers) {
             offCtx.drawImage(buffer, 0, 0, this.picture.canvas.width, this.picture.canvas.height);
         }
@@ -1379,7 +1487,7 @@ export class Moji {//文字コンポーネント
         this.imageCache = this.imageCacheBuffer = undefined;
     }
     set(text = '', x = this.owner.pos.x, y = this.owner.pos.y, options = {}) {
-        const { size = this.size, color = this.owner.color.value, font = this.font, weight = this.weight, align = this.owner.pos.align, valign = this.owner.pos.valign, angle = this.owner.pos.angle, useImagecache
+        const { size = this.size, color = this.owner.color.value, font = this.font, weight = this.weight, align = this.owner.pos.align, valign = this.owner.pos.valign, angle = this.owner.pos.angle, useImageCache
             = false } = options;
         this.text = text;
         this.weight = weight;
@@ -1395,7 +1503,7 @@ export class Moji {//文字コンポーネント
         pos.angle = angle;
         this.owner.color.setColor(color);
         this.imageCache = this.imageCacheBuffer = undefined;
-        if (useImagecache) this.applyImageCache();
+        if (useImageCache) this.applyImageCache();
     }
     applyImageCache() {
         if (!Moji.imageCache.has(this.cacheKey)) {
@@ -1490,22 +1598,8 @@ export class Particle extends Mono {//パーティクル
     static MojiParticleName = `${Particle.name}${Moji.name}`;
     constructor() {
         super(Child);
-        this.child.addCreator(Particle.BrushParticleName, () => {
-            const t = new Mono(Scale, Move, Brush);
-            t.update = () => {
-                if (!t.move.isActive) t.remove();
-                t.color.alpha = 1 - t.move.percentage;
-            };
-            return t;
-        });
-        this.child.addCreator(Particle.MojiParticleName, () => {
-            const t = new Mono(Scale, Move, Moji);
-            t.update = () => {
-                if (!t.move.isActive) t.remove();
-                t.color.alpha = 1 - t.move.percentage;
-            };
-            return t;
-        });
+        this.child.addCreator(Particle.BrushParticleName, () => new Mono(Scale, Move, Brush));
+        this.child.addCreator(Particle.MojiParticleName, () => new Mono(Scale, Move, Moji));
     }
     emitt(deg, distance, time, size, color, x, y, isConverge = false, options = {}) {
         const { emoji: emoji = undefined, angle = 0, isRandomAngle = false, rotate = 0, scale = 1 } = options;
@@ -1533,7 +1627,8 @@ export class Particle extends Mono {//パーティクル
             t.pos.align = 1;
             t.pos.valign = 1;
         }
-        t.move.relativeDegForTime(cd, distance, time);
+        t.move.relativeDegForTime(cd, distance, time, { easing: Ease.linear, callback: () => t.remove() });
+        t.color.fadeout(time, Ease.cubicout);
         if (scale !== 1) t.scale.set(scale, scale, time, Ease.sineout);
     }
     emittCircle(count, distance, time, size, color, x, y, isConverge = false, options = {}) {
